@@ -2,7 +2,7 @@
 
 from collections import namedtuple
 from copy import deepcopy
-from random import random, choice, uniform
+from random import random, choice, uniform, sample
 from time import sleep
 import itertools
 
@@ -55,7 +55,64 @@ class Game:
       if (self._get_value(p) >= 0):
         if (p == self.end):
             self.finished = True
-            self.cum_reward = 100
+            self.cum_reward += 100
+        self.player = p        
+        self.cum_reward += self._get_value(p) - 1
+        self._set_value(p, 0)
+      else:
+        self.cum_reward += self._get_value(p) - 1
+        
+
+    def _get_value(self, p):
+      return self.Board[p.y][p.x]
+
+    def _set_value(self, p, v):
+      self.Board[p.y][p.x] = v    
+
+    def __str__(self):
+        b = deepcopy(self.Board)
+        b[self.player.y][self.player.x] = '_'
+        b[self.end.y][self.end.x] = 'E'
+        sub = {0: ' . ', -1: '[.]', -9: '[*]', 9: ' + ', '_': ' _ ', 'E': ' E '}
+
+        return '\n'.join( 
+            map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))
+
+class CollectAllGame:
+    def __init__(self, Board, start, end):  
+    # 0 - path, 
+    # 1 - happy path, 
+    #-1 - bounce back, 
+
+        height = len(Board) + 2        
+        width = len(Board[0]) + 2
+
+        Board = [[-1] * width] + map(lambda l: [-1] + l + [-1], Board) + [[-1] * width]
+        self.end = Point(end.x + 1, end.y + 1)
+        self.player = Point(start.x + 1, start.y + 1)
+
+        self.Board = Board
+        self.cum_reward = 0
+        self.finished = False
+
+        self.to_gather = len(filter(lambda x: x == 9, self.get_state()))                                 
+
+    def get_state(self):
+        return tuple([item for sublist in self.Board for item in sublist] + [self.player])
+
+    def input(self, ch):
+      if self.finished:
+        raise ValueError("Game already finished!")
+      d = { 'l': (-1, 0), 'r': (1, 0), 'u': (0, -1), 'd': (0, 1) }  
+      self._move(d[ch][0], d[ch][1])      
+      return self  
+
+    def _move(self, dx, dy):
+      p = Point(self.player.x + dx, self.player.y + dy)
+      if (self._get_value(p) >= 0):
+        if (p == self.end and self.to_gather == 0):
+            self.finished = True
+            self.cum_reward += 20
         self.player = p        
         self.cum_reward += self._get_value(p) - 0.1
         self._set_value(p, 0)
@@ -76,7 +133,7 @@ class Game:
         sub = {0: ' . ', -1: '[.]', -9: '[*]', 9: ' + ', '_': ' _ ', 'E': ' E '}
 
         return '\n'.join( 
-            map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))
+            map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))        
 
 
 class PcManGame:
@@ -223,11 +280,54 @@ class QLearningOffPolicyTDControlAlgo:
         q = self._get_q
         qB = q(exp.s1, self.pi(self.state))
         q0 = q(exp.s0, exp.a0)
-        self.Q[(exp.s0, exp.a0)] = min(
-            9999, 
-            (1-self.alpha) * q0 + self.alpha * (exp.r0 + self.gamma * qB))
+        self.Q[(exp.s0, exp.a0)] = (
+            (1-self.alpha) * q0 + self.alpha * (exp.r0 + self.gamma * qB)
+          )
         self.state = exp.s1    
 
+class QLearningOffPolicyWithRepeatAlgo: #Dyna-Q
+
+    def __init__(self, actions, init_state, sample_size = 5, history_length = 20):
+        self.gamma = 0.5
+        self.alpha = 1
+        self.epsilon = 0.2
+        self.Q = {}
+        self.actions = actions
+        self.state = init_state
+        self.memory = []
+        self.sample_size = sample_size
+        self.history_length = history_length
+
+    def _get_q(self, state, action):
+        k = (state, action)
+        v = getOrElse(self.Q, k, 9)
+        self.Q[k] = v
+        return v
+
+
+    def action(self):
+        while True:
+          if (random() < self.epsilon):
+            yield choice(self.actions)
+          else:
+            yield self.pi(self.state)
+          
+    def pi(self, state):
+      return max(map(lambda action: (action, self._get_q(state, action)), 
+            self.actions), key = lambda opt: opt[1])[0]
+
+
+    def feedback(self, exp):
+        q = self._get_q
+
+        self.memory += [(exp.s0, exp.a0, exp.r0, q(exp.s1, self.pi(self.state)))]
+        if (len(self.memory) > self.history_length):
+          self.memory = self.memory[1:]
+
+        for s0, a0, r0, qB in sample(self.memory, min(len(self.memory), self.sample_size)):
+          self.Q[(s0, a0)] = (1-self.alpha) * q(s0, a0) + self.alpha * (r0 + self.gamma * qB)
+
+        self.state = exp.s1    
 
 class QLearningOnPolicyTDControlAlgo:    # or SARSA
 
@@ -241,7 +341,7 @@ class QLearningOnPolicyTDControlAlgo:    # or SARSA
 
     def _get_q(self, state, action):
         k = (state, action)
-        v = getOrElse(self.Q, k, 99)
+        v = getOrElse(self.Q, k, 9)
         self.Q[k] = v
         return v
 
@@ -294,11 +394,11 @@ class Teacher:
       self.algo = algo
 
     def teach(self, episodes, verbose = lambda x: True):
-      return [single_play(self.board, self.algo, 10000, verbose = verbose(i)) for i in range(episodes)]
+      return [self.single_play(500, verbose = verbose(i)) for i in range(episodes)]
 
-    def single_play(_Board, Algo, n_steps = float("inf"), verbose = False):
-      Board = deepcopy(_Board)
-      algo_input = Algo.action()
+    def single_play(self, n_steps = float("inf"), verbose = False):
+      Board = deepcopy(self.board)
+      algo_input = self.algo.action()
 
       history = []
 
@@ -315,22 +415,21 @@ class Teacher:
           Board.input(action)
 
           exp = Experience(old_state, action, Board.cum_reward - old_cum_reward, Board.get_state())
-          Algo.feedback(exp)
+          self.algo.feedback(exp)
 
           history = [exp] + history
           if verbose:
             print "Cumulative Reward: ", Board.cum_reward
             print "Action: ", action
             print Board
-            print map(lambda action: (action, Algo.Q[(Board.get_state(), action)]), Algo.actions)          
+            print map(lambda action: (action, self.algo._get_q(Board.get_state(), action)), self.algo.actions)          
             print "\n"
             sleep(0.1)
-          
-      
-      #print Algo.Q
 
       if Board.finished:
         print "Finished after ", i_steps, " steps"    
+      else:
+        print "Failure."  
 
 
       return (i_steps, Board.cum_reward)
