@@ -11,28 +11,19 @@ from itertools import groupby
 import numpy as np
 
 
-if len(sys.argv) < 2:
-  sys.argv.append('/Users/maciej/Development/atari-roms/space_invaders.bin')
-  #print 'Usage:', sys.argv[0], 'rom_file'
-  #sys.exit()
-
-ale = ALEInterface()
-
-# Get & Set the desired settings
-ale.setInt('random_seed', 123)
 
 # Set USE_SDL to true to display the screen. ALE must be compilied
 # with SDL enabled for this to work. On OSX, pygame init is used to
 # proxy-call SDL_main.
 
-USE_SDL = False
-if USE_SDL:
-  if sys.platform == 'darwin':   
-    import pygame
-    pygame.init() 
-    ale.setBool('sound', False) # Sound doesn't work on OSX    
-  elif sys.platform.startswith('linux'):
-    ale.setBool('sound', True)
+#USE_SDL = False
+#if USE_SDL:
+#  if sys.platform == 'darwin':   
+#    import pygame
+#    pygame.init() 
+#    ale.setBool('sound', False) # Sound doesn't work on OSX    
+#  elif sys.platform.startswith('linux'):
+#    ale.setBool('sound', True)
   
 
 # ale.setString("record_screen_dir", "record")
@@ -40,148 +31,143 @@ if USE_SDL:
 # Load the ROM file
 #ale.setBool('display_screen', True)  
 
-import pygame
-pygame.init()
-w_orig = 160
-h_orig = 210
+def init_ale():
+  ale = ALEInterface()
+  ale.setInt('random_seed', 123)
+  ale.setBool('frame_skip', 1)
+  ale.loadROM(rom_path + '/space_invaders.bin')
+  return ale
 
-reduceby = 1
+class SpaceInvadersGame:
 
-aspect = 1
+  def __init__(self, rom_path, ale):
+    self.ale = ale
 
+    # Get & Set the desired settings
+    
+    import pygame
+    pygame.init()
+    w_orig = 160
+    h_orig = 210
 
-square=pygame.Surface((reduceby * aspect, reduceby * aspect))
-arr = {0: (0,0,0),
-       6: (200, 200, 0),
-       20: (0, 200, 200),
-       52: (200, 0, 200),
-       196: (196, 0, 0),
-       226: (0, 226, 0), 
-       246: (146, 0, 0)}
+    self.arr = {0: (0,0,0),
+           6: (200, 200, 0),
+           20: (0, 200, 200),
+           52: (200, 0, 200),
+           196: (196, 0, 0),
+           226: (0, 226, 0), 
+           246: (146, 0, 0)}
 
+    self.desired_width = 14
+    self.desired_height = 20
+    self.screen = pygame.display.set_mode((self.desired_height * 16, self.desired_width * 16))
 
-#background = pygame.image.load('ms_pacman_background.bmp').convert_alpha()
-#background_pxls = pygame.surfarray.pixels2d(background)
+    self.colors = [0, 6, 20, 52, 196, 226, 246]
+    self.finished = False    
+    self.cum_reward = 0
 
-#background_pxls = background_pxls[range(0, len(background_pxls), 2)]
+  def get_actions(self):
+    return self.ale.getMinimalActionSet()
 
+  def vectorize_single_group(self, vec):
+      return map(lambda e: e in vec, self.colors)
 
+  def vectorized(self, scr):
+    grouped = np.reshape(np.swapaxes(np.reshape(scr, (self.desired_width, 210 / self.desired_width, self.desired_height, 160 / self.desired_height)), 1,2), (self.desired_width, self.desired_height, 160 * 210 / self.desired_width / self.desired_height))
+    return np.apply_along_axis(self.vectorize_single_group, axis = 2, arr = grouped)
 
-board = pygame.Surface((210, 160))
+  def show_vectorized(self, vec):
+    import pygame
+    rect=pygame.Surface((2, 14))
+    border = pygame.Surface((16, 16))
+    for y in range(0, self.desired_width):
+      for x in range(0, self.desired_height):
+        border_rect = pygame.Rect(x, y, 16, 16)
+        border.fill((255, 255, 255))
+        self.screen.blit(border, (x*16, y*16))      
+        for i_color in range(len(self.colors)):
+          if (vec[y][x][i_color]):
+            rect.fill(self.arr[self.colors[i_color]])
+          else:
+            rect.fill((0, 0, 0))
+          self.screen.blit(rect, (x * 16 + 1 + i_color*2, y * 16 + 1))
+        
+    pygame.display.flip()          
 
-desired_width = 14
-desired_height = 20
+  def input(self, action):
+    self.cum_reward = self.ale.act(action)
+    if (self.ale.game_over()):
+      self.finished = True
+      self.ale.reset_game()
 
-screen = pygame.display.set_mode((desired_height * 16, desired_width * 16))
+    return self
 
-
-colors = [0, 6, 20, 52, 196, 226, 246]
-
-#scr[scr - background == 0] = 0
-
-def vectorize_single_group(vec):
-    return map(lambda e: e in vec, colors)
-
-def vectorized(scr):
-  grouped = np.reshape(np.swapaxes(np.reshape(scr, (desired_width, 210 / desired_width, desired_height, 160 / desired_height)), 1,2), (desired_width, desired_height, 160 * 210 / desired_width / desired_height))
-  return np.apply_along_axis(vectorize_single_group, axis = 2, arr = grouped)
-
-def show_vectorized(vec):
-  rect=pygame.Surface((2, 14))
-  border = pygame.Surface((16, 16))
-  for y in range(0, desired_width):
-    for x in range(0, desired_height):
-      border_rect = pygame.Rect(x, y, 16, 16)
-      border.fill((255, 255, 255))
-      screen.blit(border, (x*16, y*16))      
-      for i_color in range(len(colors)):
-        if (vec[y][x][i_color]):
-          rect.fill(arr[colors[i_color]])
-        else:
-          rect.fill((0, 0, 0))
-        screen.blit(rect, (x * 16 + 1 + i_color*2, y * 16 + 1))
-      
-  pygame.display.flip()          
-
-
-def show(sqr):  
-
-  
-  
-#  print (scr - background_pxls == 0)
-  
-
-  #sqr = [scr[i:i+w_orig] for i in xrange(0, w_orig * h_orig, w_orig)]
-
-  #shape = sqr.shape
-  #m = np.reshape(map(lambda x: arr_s[x], np.reshape(sqr, (shape[0] * shape[1],))), shape)
-  #sqr[(sqr - m == 0)] = 0
-  #sums = [reduce(lambda c, x: c + [x*(c[-1] + x)], row, [0]) for row in (sqr == blue).astype(int)]
-  #sqr[sums == 8]
-
-  for y in range(0, 210, reduceby):
-    for x in range(0, 160, reduceby):
-        square.fill(arr[sqr[y][x]])
-        draw_me=pygame.Rect((x*aspect+1), (y*aspect+1), reduceby * aspect, reduceby * aspect)
-        screen.blit(square,draw_me)
-  screen.blit(square,(0,0))
-  pygame.display.flip()    
+  def get_state(self):
+    return self.vectorized(self.ale.getScreen())
 
 
-
-ale.setBool('frame_skip', 1)
-ale.loadROM(sys.argv[1])
-print "--"
-# Get the list of legal actions
-legal_actions = ale.getMinimalActionSet()
-
-#show(sqr = np.reshape(ale.getScreen(), (210, 160)))
+rom_path = '/Users/maciej/Development/atari-roms'
 
 
+def test():
+  ale = init_ale()
+  game = SpaceInvadersGame(rom_path, ale)
+  game.show_vectorized(game.vectorized(ale.getScreen()))
+  teacher = Teacher(game, RandomAlgo(game.get_actions()))
+  teacher.teach(1, verbose = lambda x: False)
 
-def play_randomly(n):
-  screens = []
-  for episode in xrange(n):
-    total_reward = 0
+    #def show(sqr):  
+    #  square=pygame.Surface(1, 1)
+    #  for y in range(0, 210, reduceby):
+    #    for x in range(0, 160, reduceby):
+    #        square.fill(arr[sqr[y][x]])
+    #        draw_me=pygame.Rect((x*aspect+1), (y*aspect+1), reduceby * aspect, reduceby * aspect)
+    #        screen.blit(square,draw_me)
+    #  screen.blit(square,(0,0))
+    #  pygame.display.flip()    
 
 
-    while not ale.game_over():         
-      #show(sqr = np.reshape(ale.getScreen(), (210, 160)))
-      a = legal_actions[randrange(len(legal_actions))]
-      ale.act(a)
-      screens.append(ale.getScreen())
-    ale.reset_game()  
-  return screens  
+#def play_randomly(n):
+#  screens = []
+#  for episode in xrange(n):
+#    total_reward = 0
 
-def define_background(screens):
-  import scipy.stats
-  return scipy.stats.mode(screens).mode    
 
-def pickle_background(background, file_name):
-  import pickle
-  with open(file_name, 'wb') as pfile:
-    pickle.dump(background, pfile, protocol = pickle.HIGHEST_PROTOCOL)  
+#    while not ale.game_over():         
+#      a = legal_actions[randrange(len(legal_actions))]
+#      ale.act(a)
+#      screens.append(ale.getScreen())
+#    ale.reset_game()  
+#  return screens  
 
-def unpickle_backround(file_name):
-  import pickle
-  with open(file_name, 'r') as pfile:
-    return pickle.load(pfile)    
+#def define_background(screens):
+#  import scipy.stats
+#  return scipy.stats.mode(screens).mode    
+
+#def pickle_background(background, file_name):
+#  import pickle
+#  with open(file_name, 'wb') as pfile:
+#    pickle.dump(background, pfile, protocol = pickle.HIGHEST_PROTOCOL)  
+
+#def unpickle_backround(file_name):
+#  import pickle
+#  with open(file_name, 'r') as pfile:
+#    return pickle.load(pfile)    
 
 # Play 10 episodes
-def play():
- for episode in xrange(10):
-  total_reward = 0
+#def play():
+# for episode in xrange(10):
+#  total_reward = 0
 
 
-  while not ale.game_over():     
-    import time
+#  while not ale.game_over():     
+#    import time
     #time.sleep(0.05)
     #show(sqr = np.reshape(ale.getScreen(), (210, 160)))
-    show_vectorized(vectorized(ale.getScreen()))
-    a = legal_actions[randrange(len(legal_actions))]
-    #a = legal_actions[i % 2]
+#    show_vectorized(vectorized(ale.getScreen()))
+#    a = legal_actions[randrange(len(legal_actions))]
     # Apply an action and get the resulting reward
-    reward = ale.act(a);
-    total_reward += reward
-  print 'Episode', episode, 'ended with score:', total_reward
-  ale.reset_game()
+#    reward = ale.act(a);
+#    total_reward += reward
+#  print 'Episode', episode, 'ended with score:', total_reward
+#  ale.reset_game()

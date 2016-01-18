@@ -91,7 +91,7 @@ q_algo1 = q.QLearningOffPolicyWithRepeatAlgo(['u', 'd', 'l', 'r'], game.get_stat
 
 q_algo1.gamma = 0.9
 
-teacher = q.Teacher(game, q_algo1)
+teacher = q.Teacher(game, q_algo1, PcManGameVisualizer(game))
 
 q_algo1.alpha = 0.1
 q_algo1.epsilon = 0.1

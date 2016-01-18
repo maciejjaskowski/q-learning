@@ -2,7 +2,7 @@
 
 from collections import namedtuple
 from copy import deepcopy
-from random import random, choice, uniform, sample
+from random import random, choice, uniform, sample, randrange
 from time import sleep
 import itertools
 
@@ -34,6 +34,11 @@ class Game:
         self.valid_player_locations = [(x,y) for row, y in zip(self.Board, range(len(self.Board))) 
                                          for x in range(len(row)) if row[x]>=0]
 
+        self.last_action = None                                 
+
+    def get_actions(self):
+      return ['l', 'r', 'u', 'd']    
+
     def get_state(self):
         return tuple([item for sublist in self.Board for item in sublist] + [self.player])
 
@@ -48,6 +53,7 @@ class Game:
         self._move(0, -1)
       if ch == 'd':
         self._move(0, 1)
+      self.last_action = ch  
       return self  
 
     def _move(self, dx, dy):
@@ -78,33 +84,50 @@ class Game:
         return '\n'.join( 
             map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))
 
+class GameVisualizer:
+  def show(self, game):
+    print "Cumulative Reward: ", game.cum_reward
+    print "Action: ", game.last_action
+    print game
+    #print map(lambda action: (action, self.algo._get_q(Board.get_state(), action)), self.algo.actions)          
+    print "\n"
+    sleep(0.1)   
+
+  def next_game(self):         
+    pass
+
 class CollectAllGame:
     def __init__(self, Board, start, end):  
     # 0 - path, 
     # 1 - happy path, 
     #-1 - bounce back, 
 
-        height = len(Board) + 2        
-        width = len(Board[0]) + 2
+      height = len(Board) + 2        
+      width = len(Board[0]) + 2
 
-        Board = [[-1] * width] + map(lambda l: [-1] + l + [-1], Board) + [[-1] * width]
-        self.end = Point(end.x + 1, end.y + 1)
-        self.player = Point(start.x + 1, start.y + 1)
+      Board = [[-1] * width] + map(lambda l: [-1] + l + [-1], Board) + [[-1] * width]
+      self.end = Point(end.x + 1, end.y + 1)
+      self.player = Point(start.x + 1, start.y + 1)
 
-        self.Board = Board
-        self.cum_reward = 0
-        self.finished = False
+      self.Board = Board
+      self.cum_reward = 0
+      self.finished = False
 
-        self.to_gather = len(filter(lambda x: x == 9, self.get_state()))                                 
+      self.to_gather = len(filter(lambda x: x == 9, self.get_state()))                                 
+      self.last_action = None
 
     def get_state(self):
         return tuple([item for sublist in self.Board for item in sublist] + [self.player])
+
+    def get_actions(self):
+      return ['l', 'r', 'u', 'd']    
 
     def input(self, ch):
       if self.finished:
         raise ValueError("Game already finished!")
       d = { 'l': (-1, 0), 'r': (1, 0), 'u': (0, -1), 'd': (0, 1) }  
       self._move(d[ch][0], d[ch][1])      
+      self.last_action = ch
       return self  
 
     def _move(self, dx, dy):
@@ -127,14 +150,66 @@ class CollectAllGame:
       self.Board[p.y][p.x] = v    
 
     def __str__(self):
-        b = deepcopy(self.Board)
-        b[self.player.y][self.player.x] = '_'
-        b[self.end.y][self.end.x] = 'E'
-        sub = {0: ' . ', -1: '[.]', -9: '[*]', 9: ' + ', '_': ' _ ', 'E': ' E '}
+      b = deepcopy(self.Board)
+      b[self.player.y][self.player.x] = 'X'
+      b[self.end.y][self.end.x] = 'E'
+      sub = {0: ' . ', -1: '[.]', -9: '[*]', 9: ' + ', '_': ' _ ', 'E': ' E '}
 
-        return '\n'.join( 
-            map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))        
+      return '\n'.join( 
+          map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))        
 
+
+class CollectAllGameVisualizer:
+  
+  def show(self, game):
+    print "Cumulative Reward: ", game.cum_reward
+    print "Action: ", game.last_action
+    print game
+    #print map(lambda action: (action, self.algo._get_q(Board.get_state(), action)), self.algo.actions)          
+    print "\n"
+    sleep(0.1)   
+
+  def next_game(self):         
+    pass
+
+class PcManGameVisualizer:
+  def __init__(self):
+    pass
+
+  def show(self, game):
+    print "Cumulative Reward: ", game.cum_reward
+    print "Action: ", game.last_action
+    print game
+    #print map(lambda action: (action, self.algo._get_q(Board.get_state(), action)), self.algo.actions)          
+    print "\n"
+    sleep(0.1)
+
+  def next_game(self):
+    pass    
+
+class GameNoVisualizer:
+  def show(self, game):
+    pass
+
+  def next_game(self):
+    pass        
+
+class EveryNVisualizer:
+  def __init__(self, n, visualizer):
+    self.n = n
+    self.right_visualizer = visualizer
+    self.visualizer = GameNoVisualizer()
+    self.i = 0
+
+  def show(self, game):
+    self.visualizer.show(game)
+    
+  def next_game(self):
+    self.i += 1    
+    if (self.i % self.n == self.n - 1):
+      self.visualizer = self.right_visualizer
+    else:
+      self.visualizer = GameNoVisualizer()
 
 class PcManGame:
     def __init__(self, Board, start, ghost_start):  
@@ -154,9 +229,13 @@ class PcManGame:
         self.ghost = Point(ghost_start.x + 1, ghost_start.y + 1)
         self.ghost_direction = choice(self._valid_direction(self.ghost))
         self.to_gather = len(filter(lambda x: x == 9, self.get_state()))
+        self.last_action = None
 
     def get_state(self):
         return tuple([item for sublist in self.Board for item in sublist] + [self.player])
+
+    def get_actions(self):
+      return ['l', 'r', 'u', 'd']    
 
     def input(self, ch):
       if self.finished:
@@ -175,6 +254,8 @@ class PcManGame:
         self.finished = True
       else:    
         self._move_ghost()
+
+      self.last_action = ch  
 
       if (self.player == self.ghost):
         self.finished = True
@@ -245,6 +326,17 @@ class StupidAlgo:
         yield 'd'
 
     def feedback(self, exp):
+        pass   
+
+class RandomAlgo:
+    def __init__(self, legal_actions):
+      self.legal_actions = legal_actions
+
+    def action(self):
+      while True:
+        yield self.legal_actions[randrange(len(self.legal_actions))]
+
+    def feedback(self, x):
         pass    
 
 class QLearningOffPolicyTDControlAlgo:    
@@ -370,68 +462,47 @@ class QLearningOnPolicyTDControlAlgo:    # or SARSA
         )
         self.state = exp.s1
         self.next_action = a1           
-
-class QBrowser:
-    def __init__(self, Q, actions, game, width):
-        self.Q = Q
-        self.actions = actions
-        self.game = deepcopy(game)
-        self.width = width
-
-    def input(self, action):
-        self.game.input(action)
-        return self
-
-    def __str__(self):        
-        l = self.game
-        actions = map(lambda action: (action, self.Q[(self.game.get_state(), action)]), self.actions)
-        return str(l) + '\n' + str(actions)
         
 
 class Teacher:
-    def __init__(self, board, algo):
-      self.board = board
+    def __init__(self, game, algo, game_visualizer):
+      self.game = game
       self.algo = algo
+      self.game_visualizer = game_visualizer
 
-    def teach(self, episodes, verbose = lambda x: True):
-      return [self.single_play(500, verbose = verbose(i)) for i in range(episodes)]
+    def teach(self, episodes):
+      return [self.single_play(50000) for i in range(episodes)]
 
-    def single_play(self, n_steps = float("inf"), verbose = False):
-      Board = deepcopy(self.board)
+    def single_play(self, n_steps = float("inf")):
+      Game = deepcopy(self.game)
       algo_input = self.algo.action()
 
       history = []
 
       i_steps = 0
 
-      while not Board.finished and i_steps < n_steps:
+      while not Game.finished and i_steps < n_steps:
           i_steps += 1
-
           
-          old_state = Board.get_state()
-          old_cum_reward = Board.cum_reward
+          old_state = Game.get_state()
+          old_cum_reward = Game.cum_reward
 
           action = next(algo_input)
-          Board.input(action)
+          Game.input(action)
 
-          exp = Experience(old_state, action, Board.cum_reward - old_cum_reward, Board.get_state())
+          exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, Game.get_state())
           self.algo.feedback(exp)
 
           history = [exp] + history
-          if verbose:
-            print "Cumulative Reward: ", Board.cum_reward
-            print "Action: ", action
-            print Board
-            print map(lambda action: (action, self.algo._get_q(Board.get_state(), action)), self.algo.actions)          
-            print "\n"
-            sleep(0.1)
+          self.game_visualizer.show(Game)  
 
-      if Board.finished:
+      if Game.finished:
         print "Finished after ", i_steps, " steps"    
       else:
         print "Failure."  
 
+      self.game_visualizer.next_game()
 
-      return (i_steps, Board.cum_reward)
+      return (i_steps, Game.cum_reward)
 
-
+#Todo: 
