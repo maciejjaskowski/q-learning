@@ -1,10 +1,13 @@
-
+from __future__ import division
 
 from collections import namedtuple
 from copy import deepcopy
 from random import random, choice, uniform, sample, randrange
 from time import sleep
+
+from bisect import bisect
 import itertools
+import numpy as np
 
 Point = namedtuple('Point', 'x y')
 Experience = namedtuple('Experience', 's0 a0 r0 s1')
@@ -313,6 +316,117 @@ class PcManGame:
 
 
 
+class MountainCarGame:
+
+  def __init__(self):
+    self.position = random() * ( 0.5 - (-1.2)) + (-1.2)
+    self.throttle = 0
+    self.velocity = random() * (0.07 - (-0.07)) + (-0.07)
+    self.cum_reward = 0
+    self.finished = False
+
+
+  def input(self, ch):
+    import math
+    if ch in self.get_actions():
+      self.throttle = ch
+      
+    self.position = self.position + self.velocity
+    if self.position > 0.5:
+      self.finished = True      
+    if self.position < -1.2:
+      self.position = -1.2
+      self.velocity = 0  
+    self.velocity = self.velocity + 0.0001 * self.throttle - 0.0025 * math.cos(3 * self.position)
+    if (self.velocity < -0.07):
+      self.velocity = -0.07
+    if (self.velocity > 0.07):
+      self.velocity = 0.07  
+    self.cum_reward -= 1  
+    return self
+
+  
+
+  def get_actions(self):
+    return [-1, 0, 1]  
+
+  def get_state(self):    
+    return (self.position, self.velocity)
+
+class MountainCarGameVisualizer:
+  def __init__(self, print_every_n = 10):
+    import matplotlib.pyplot as plt
+    self.fig = plt.figure()
+    self.hl, = plt.plot([], [], color='k', linestyle='-')
+    self.mi, = plt.plot([], [], color='red', linestyle='-')
+    self.ma, = plt.plot([], [], color='red', linestyle='-')
+    plt.xlim(-1.3, 0.6)
+    plt.ylim(-0.1, 0.1)
+    self.history_x = []
+    self.history_y = []
+    self.i = -1
+    self.print_every_n = print_every_n
+    self.xlim = [0,0]
+
+
+  def show(self, game):
+    self.i += 1
+    import matplotlib.pyplot as plt
+    import matplotlib
+
+    if len(self.history_x) > 100:
+      self.history_x = self.history_x[1:]
+      self.history_y = self.history_y[1:]
+
+    newx, newy = game.get_state()
+    self.history_x.append(newx)
+    self.history_y.append(newy)
+    self.xlim[0] = min(self.xlim[0], newx)
+    self.xlim[1] = max(self.xlim[1], newx)
+
+    if self.i % self.print_every_n == 0:
+      self.hl.set_xdata(self.history_x)
+      self.hl.set_ydata(self.history_y)
+      self.mi.set_xdata([self.xlim[0]]*2)
+      self.mi.set_ydata([-0.08, 0.08])
+      self.ma.set_xdata([self.xlim[1]]*2)
+      self.ma.set_ydata([-0.08, 0.08])
+
+      self.fig.canvas.draw()
+      self.fig.canvas.flush_events()
+
+      import time
+      time.sleep(0.01)
+    
+    #print(game.get_state(), game.throttle)
+    
+  def next_game(self):
+    pass
+
+def tilings(x, y, n, n_tilings): # n_tilings = 5, n = 9
+
+  dx = (x[1] - x[0])
+  dy = (y[1] - y[0])
+  range_x = np.array(range(n-1)) / (n-1) * dx + x[0] 
+  range_y = np.array(range(n-1)) / (n-1) * dy + y[0] 
+
+  def tiling():
+    distortion_x = randrange(0, 1000) / 1000 * dx
+    distortion_y = randrange(0, 1000) / 1000 * dy
+    return distortion_x + range_x, distortion_y + range_y 
+
+  tilings = [ tiling() for i in range(n_tilings)]
+
+  def one_at(i):
+    result = np.zeros(n * n)
+    result[i] = 1
+    return result
+
+  def calc(p):
+    return tuple([(bisect(tiling[0], p[0]), bisect(tiling[1], p[1])) for tiling in tilings])
+    #return [one_at(y * n + x) for x, y in locations]
+
+  return calc
    
 
 class StupidAlgo:
@@ -379,7 +493,7 @@ class QLearningOffPolicyTDControlAlgo:
 
 class QLearningOffPolicyWithRepeatAlgo: #Dyna-Q
 
-    def __init__(self, actions, init_state, sample_size = 5, history_length = 20):
+    def __init__(self, actions, init_state, sample_size = 5, history_length = 20, initial_q = 0):
         self.gamma = 0.5
         self.alpha = 1
         self.epsilon = 0.2
@@ -389,10 +503,13 @@ class QLearningOffPolicyWithRepeatAlgo: #Dyna-Q
         self.memory = []
         self.sample_size = sample_size
         self.history_length = history_length
+        self.initial_q = initial_q
 
     def _get_q(self, state, action):
         k = (state, action)
-        v = getOrElse(self.Q, k, 9)
+        #print "_---------------"
+        #print(k, self.Q, self.initial_q)
+        v = getOrElse(self.Q, k, self.initial_q)
         self.Q[k] = v
         return v
 
@@ -465,10 +582,17 @@ class QLearningOnPolicyTDControlAlgo:    # or SARSA
         
 
 class Teacher:
-    def __init__(self, game, algo, game_visualizer):
+    def __init__(self, game, algo, game_visualizer, state_vectorizer = lambda x: x):
       self.game = game
       self.algo = algo
       self.game_visualizer = game_visualizer
+      self.state_vectorizer = state_vectorizer
+
+
+    def get_state(self, Game): 
+      print Game.get_state()
+      print self.state_vectorizer(Game.get_state())
+      return self.state_vectorizer(Game.get_state())
 
     def teach(self, episodes):
       return [self.single_play(50000) for i in range(episodes)]
@@ -484,13 +608,14 @@ class Teacher:
       while not Game.finished and i_steps < n_steps:
           i_steps += 1
           
-          old_state = Game.get_state()
+          old_state = self.get_state(Game)
           old_cum_reward = Game.cum_reward
 
           action = next(algo_input)
           Game.input(action)
 
-          exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, Game.get_state())
+          exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, self.get_state(Game))
+          print exp
           self.algo.feedback(exp)
 
           history = [exp] + history

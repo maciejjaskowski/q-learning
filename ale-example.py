@@ -42,7 +42,6 @@ class SpaceInvadersGameVisualizer:
   def __init__(self):
     import pygame
     pygame.init()
-    # Get & Set the desired settings
     w_orig = 160
     h_orig = 210
 
