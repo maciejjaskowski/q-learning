@@ -38,15 +38,11 @@ def init_ale():
   ale.loadROM(rom_path + '/space_invaders.bin')
   return ale
 
-class SpaceInvadersGame:
-
-  def __init__(self, rom_path, ale):
-    self.ale = ale
-
-    # Get & Set the desired settings
-    
+class SpaceInvadersGameVisualizer:
+  def __init__(self):
     import pygame
     pygame.init()
+    # Get & Set the desired settings
     w_orig = 160
     h_orig = 210
 
@@ -61,38 +57,54 @@ class SpaceInvadersGame:
     self.desired_width = 14
     self.desired_height = 20
     self.screen = pygame.display.set_mode((self.desired_height * 16, self.desired_width * 16))
-
-    self.colors = [0, 6, 20, 52, 196, 226, 246]
-    self.finished = False    
-    self.cum_reward = 0
-
-  def get_actions(self):
-    return self.ale.getMinimalActionSet()
-
-  def vectorize_single_group(self, vec):
-      return map(lambda e: e in vec, self.colors)
-
-  def vectorized(self, scr):
-    grouped = np.reshape(np.swapaxes(np.reshape(scr, (self.desired_width, 210 / self.desired_width, self.desired_height, 160 / self.desired_height)), 1,2), (self.desired_width, self.desired_height, 160 * 210 / self.desired_width / self.desired_height))
-    return np.apply_along_axis(self.vectorize_single_group, axis = 2, arr = grouped)
+    self.colors = sorted(self.arr.keys())
 
   def show_vectorized(self, vec):
     import pygame
-    rect=pygame.Surface((2, 14))
+    rect = pygame.Surface((2, 14))
     border = pygame.Surface((16, 16))
     for y in range(0, self.desired_width):
       for x in range(0, self.desired_height):
         border_rect = pygame.Rect(x, y, 16, 16)
         border.fill((255, 255, 255))
-        self.screen.blit(border, (x*16, y*16))      
-        for i_color in range(len(self.colors)):
+        self.screen.blit(border, (x*16, y*16))  
+
+        for i_color in range(len(self.arr)):
           if (vec[y][x][i_color]):
             rect.fill(self.arr[self.colors[i_color]])
           else:
             rect.fill((0, 0, 0))
           self.screen.blit(rect, (x * 16 + 1 + i_color*2, y * 16 + 1))
         
-    pygame.display.flip()          
+    pygame.display.flip()   
+
+  def vectorize_single_group(self, vec):
+    return map(lambda e: e in vec, self.colors)
+
+  def vectorized(self, scr):
+    grouped = \
+      np.reshape(
+        np.swapaxes(
+          np.reshape(scr, 
+            (self.desired_width, 210 / self.desired_width, 
+              self.desired_height, 160 / self.desired_height)), 
+          1,2), 
+        (self.desired_width, self.desired_height, 
+          160 * 210 / self.desired_width / self.desired_height))
+    return np.apply_along_axis(self.vectorize_single_group, axis = 2, arr = grouped)  
+
+  def show(self, game):
+    self.show_vectorized(self.vectorized(game.get_state()))
+
+class SpaceInvadersGame:
+
+  def __init__(self, ale):
+    self.ale = ale
+    self.finished = False    
+    self.cum_reward = 0
+
+  def get_actions(self):
+    return self.ale.getMinimalActionSet()  
 
   def input(self, action):
     self.cum_reward = self.ale.act(action)
@@ -103,18 +115,19 @@ class SpaceInvadersGame:
     return self
 
   def get_state(self):
-    return self.vectorized(self.ale.getScreen())
-
+    return self.ale.getScreen()
 
 rom_path = '/Users/maciej/Development/atari-roms'
 
 
 def test():
+  %run q_learning.py
+  %run ale-example.py
   ale = init_ale()
   game = SpaceInvadersGame(rom_path, ale)
-  game.show_vectorized(game.vectorized(ale.getScreen()))
-  teacher = Teacher(game, RandomAlgo(game.get_actions()))
-  teacher.teach(1, verbose = lambda x: False)
+  #game.show_vectorized(game.vectorized(ale.getScreen()))
+  teacher = Teacher(game, RandomAlgo(game.get_actions()), SpaceInvadersGameVisualizer())
+  teacher.teach(1)
 
     #def show(sqr):  
     #  square=pygame.Surface(1, 1)
