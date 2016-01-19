@@ -46,56 +46,94 @@ pc_man =    q.PcManGame([[-1,-1, 9, 9, 9, 9, 9, 9,-1,-1],
                  )        
 
 
-def on_policy_ex():
-  game = game_collect_all
-  q_algo1 = q.QLearningOnPolicyTDControlAlgo(['u', 'd', 'l', 'r'], game.get_state())
 
-  q_algo1.gamma = 0.9
+def random_on_mountain_car_game():
+  game = q.MountainCarGame()
+  q_algo = q.RandomAlgo(game.get_actions())
+  visualizer = q.MountainCarGameVisualizer()
 
-  teacher = q.Teacher(game, q_algo1)
+  teacher = q.Teacher(game, q_algo, visualizer)
 
-  q_algo1.alpha = 1
-  q_algo1.epsilon = 0.1
-  teacher.teach(100, verbose = lambda x: False)
-
-  q_algo1.alpha = 0.1
-  q_algo1.epsilon = 0.1
-  teacher.teach(2000, verbose = lambda x: False)
-
-  q_algo1.alpha = 0
-  q_algo1.epsilon = 0.1  
   teacher.teach(1)
 
-def collect_all_ex():
+def on_policy_is_more_about_safety():
   game = game_collect_all
-  q_algo1 = q.QLearningOffPolicyTDControlAlgo(['u', 'd', 'l', 'r'], game.get_state())
+  q_algo1 = q.SARSA(game.get_actions(), game.get_state(), 20)
 
-  q_algo1.gamma = 0.9
+  q_algo1.gamma = 0.5
 
-  teacher = q.Teacher(game, q_algo1)
+  teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
 
   q_algo1.alpha = 0.1
   q_algo1.epsilon = 0.1
-  teacher.teach(2000, verbose = lambda x: False)
+  teacher.teach(1500)
+
+  teacher = q.Teacher(game, q_algo1, q.CollectAllGameVisualizer())
+  
+  q_algo1.epsilon = 0.1
+  teacher.teach(1)  
+
+initial_theta = [0] * 9 * 9 * 5
+
+def sarsa_lambda_gradient_descent():
+  game = MountainCarGame()
+
+  tile_in_row = 9
+  n_tilings = 5
+  my_tilings = q.tilings((-1.2, 0.5), (-0.07, 0.07), tile_in_row, n_tilings)
+  final_tilings = lambda (a, b): [x + y * tile_in_row + i * tile_in_row * tile_in_row for (x, y), i in zip(my_tilings((a,b)), range(n_tilings))]
+
+  initial_theta = [0] * n_tilings * tile_in_row * tile_in_row
+
+  #dot = sum(initial_theta[phi((2,2))])
+
+  q_algo1 = q.SARSALambdaGradientDescent(game.get_actions(), game.get_state(), 
+    initial_q = 0, memory_size = 20, tilings = final_tilings, initial_theta = initial_theta)
+  
+
+def sarsa_lambda_example():
+  game = game_collect_all
+  q_algo1 = q.SARSALambda(game.get_actions(), game.get_state(), 20, 4)
+  q_algo1.lmbda = 0.8
+
+  q_algo1.gamma = 0.5
+
+  teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
+
+  q_algo1.alpha = 0.1
+  q_algo1.epsilon = 0.1
+  teacher.teach(80)
 
   #q_algo1.alpha = 0.1
   #q_algo1.epsilon = 0.1
   #teacher.teach(5000, verbose = lambda x: False)
 
-  q_algo1.alpha = 0
+  teacher = q.Teacher(game, q_algo1, q.CollectAllGameVisualizer())
+  #q_algo1.alpha = 0
   q_algo1.epsilon = 0  
   teacher.teach(1)  
 
-game = game_collect_all
-q_algo1 = q.QLearningOffPolicyWithRepeatAlgo(['u', 'd', 'l', 'r'], game.get_state())
+def off_policy_example():
+  game = game_collect_all
+  q_algo1 = q.SARSRepeat(game.get_actions(), game.get_state())
 
-q_algo1.gamma = 0.9
+  q_algo1.gamma = 0.5
 
-teacher = q.Teacher(game, q_algo1, PcManGameVisualizer(game))
+  teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
 
-q_algo1.alpha = 0.1
-q_algo1.epsilon = 0.1
-teacher.teach(100, verbose = lambda x: False)
+  q_algo1.alpha = 0.1
+  q_algo1.epsilon = 0.1
+  teacher.teach(1500)
+
+  #q_algo1.alpha = 0.1
+  #q_algo1.epsilon = 0.1
+  #teacher.teach(5000, verbose = lambda x: False)
+
+  teacher = q.Teacher(game, q_algo1, q.CollectAllGameVisualizer())
+  #q_algo1.alpha = 0
+  q_algo1.epsilon = 0  
+  teacher.teach(1)  
+
 
 
 class Tester:
@@ -106,7 +144,7 @@ class Tester:
 
 def teach_off_repeat():
   def factory(game):
-    q_algo1 = q.QLearningOffPolicyWithRepeatAlgo(['u', 'd', 'l', 'r'], game.get_state(), sample_size = 1, history_length = 20)
+    q_algo1 = q.SARSRepeat(game.get_actions(), game.get_state(), sample_size = 1, history_length = 20)
     q_algo1.gamma = 0.9
 
 
@@ -117,7 +155,7 @@ def teach_off_repeat():
   
 def teach_off():
   def factory(game):
-    q_algo1 = q.QLearningOffPolicyTDControlAlgo(['u', 'd', 'l', 'r'], game.get_state())
+    q_algo1 = q.SARSRepeat(game.get_actions(), game.get_state())
     q_algo1.gamma = 0.9
 
     q_algo1.alpha = 0.1

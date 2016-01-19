@@ -35,7 +35,7 @@ class Game:
         self.cum_reward = 0
         self.finished = False
         self.valid_player_locations = [(x,y) for row, y in zip(self.Board, range(len(self.Board))) 
-                                         for x in range(len(row)) if row[x]>=0]
+                                             for x in range(len(row)) if row[x]>=0 ]
 
         self.last_action = None                                 
 
@@ -140,10 +140,10 @@ class CollectAllGame:
             self.finished = True
             self.cum_reward += 20
         self.player = p        
-        self.cum_reward += self._get_value(p) - 0.1
+        self.cum_reward += self._get_value(p) - 0.01
         self._set_value(p, 0)
       else:
-        self.cum_reward += self._get_value(p) - 0.1
+        self.cum_reward += self._get_value(p) - 0.01
         
 
     def _get_value(self, p):
@@ -156,7 +156,7 @@ class CollectAllGame:
       b = deepcopy(self.Board)
       b[self.player.y][self.player.x] = 'X'
       b[self.end.y][self.end.x] = 'E'
-      sub = {0: ' . ', -1: '[.]', -9: '[*]', 9: ' + ', '_': ' _ ', 'E': ' E '}
+      sub = {0: ' . ', -1: '[.]', -9: '[*]', 9: ' + ', 'X': ' X ', 'E': ' E '}
 
       return '\n'.join( 
           map(lambda l: "".join(map(lambda x: "%03s"%sub[x], l)), b))        
@@ -321,7 +321,7 @@ class MountainCarGame:
   def __init__(self):
     self.position = random() * ( 0.5 - (-1.2)) + (-1.2)
     self.throttle = 0
-    self.velocity = random() * (0.07 - (-0.07)) + (-0.07)
+    self.velocity = random() * (0.03 - (-0.03)) + (-0.03)
     self.cum_reward = 0
     self.finished = False
 
@@ -342,7 +342,7 @@ class MountainCarGame:
       self.velocity = -0.07
     if (self.velocity > 0.07):
       self.velocity = 0.07  
-    self.cum_reward -= 1  
+    self.cum_reward -= 1 - abs(self.position)
     return self
 
   
@@ -425,6 +425,7 @@ def tilings(x, y, n, n_tilings): # n_tilings = 5, n = 9
   def calc(p):
     return tuple([(bisect(tiling[0], p[0]), bisect(tiling[1], p[1])) for tiling in tilings])
     #return [one_at(y * n + x) for x, y in locations]
+    # flatten = reduce(lambda x, y: x+y, result)
 
   return calc
    
@@ -453,7 +454,7 @@ class RandomAlgo:
     def feedback(self, x):
         pass    
 
-class QLearningOffPolicyTDControlAlgo:    
+class SARS:    
 
     def __init__(self, actions, init_state):
         self.gamma = 0.5
@@ -491,7 +492,7 @@ class QLearningOffPolicyTDControlAlgo:
           )
         self.state = exp.s1    
 
-class QLearningOffPolicyWithRepeatAlgo: #Dyna-Q
+class SARSRepeat: #Dyna-Q
 
     def __init__(self, actions, init_state, sample_size = 5, history_length = 20, initial_q = 0):
         self.gamma = 0.5
@@ -536,21 +537,25 @@ class QLearningOffPolicyWithRepeatAlgo: #Dyna-Q
         for s0, a0, r0, qB in sample(self.memory, min(len(self.memory), self.sample_size)):
           self.Q[(s0, a0)] = (1-self.alpha) * q(s0, a0) + self.alpha * (r0 + self.gamma * qB)
 
-        self.state = exp.s1    
+        self.state = exp.s1  
 
-class QLearningOnPolicyTDControlAlgo:    # or SARSA
 
-    def __init__(self, actions, init_state):
+    
+
+class SARSA:    # or SARSA
+
+    def __init__(self, actions, init_state, initial_q):
         self.gamma = 0.5
         self.alpha = 1
         self.epsilon = 0.2
         self.Q = {}
         self.actions = actions
         self.state = init_state
+        self.initial_q = initial_q
 
     def _get_q(self, state, action):
         k = (state, action)
-        v = getOrElse(self.Q, k, 9)
+        v = getOrElse(self.Q, k, self.initial_q)
         self.Q[k] = v
         return v
 
@@ -578,7 +583,120 @@ class QLearningOnPolicyTDControlAlgo:    # or SARSA
           (1-self.alpha) * q0 + self.alpha * (exp.r0 + self.gamma * q1)
         )
         self.state = exp.s1
-        self.next_action = a1           
+        self.next_action = a1
+
+class SARSALambda: 
+
+    def __init__(self, actions, init_state, initial_q, memory_size):
+      self.lmbda = 0.8
+      self.gamma = 0.5
+      self.alpha = 1
+      self.epsilon = 0.2
+      self.Q = {}
+      self.actions = actions
+      self.state = init_state
+      self.initial_q = initial_q
+      self.memory = []
+      self.memory_size = memory_size
+
+    def _get_q(self, state, action):
+        k = (state, action)
+        v = getOrElse(self.Q, k, self.initial_q)
+        self.Q[k] = v
+        return v
+
+    def action(self):
+      self.next_action = self._action(self.state)
+      while True:
+        yield self.next_action
+
+    def _action(self, state):     
+      if (random() < self.epsilon):
+        return choice(self.actions)
+      else:
+        return self.pi(state)
+          
+    def pi(self, state):
+      return max(map(lambda action: (action, self._get_q(state, action)), 
+            self.actions), key = lambda opt: opt[1])[0]
+
+    def feedback(self, exp):
+        q = self._get_q
+        a1 = self._action(exp.s1)
+        q1 = q(exp.s1, a1)
+        q0 = q(exp.s0, exp.a0)
+
+        delta = exp.r0 + self.gamma * q1 - q0
+        self.memory.append((exp.s0, exp.a0, delta))
+
+        if len(self.memory) > self.memory_size:
+          self.memory = self.memory[1:]
+
+        for (s, a, delta), d in zip(reversed(self.memory), range(len(self.memory))):
+          self.Q[(s, a)] = self.Q[(s, a)] + self.alpha * delta * (self.lmbda ** (-d))
+        
+        self.state = exp.s1
+        self.next_action = a1     
+
+
+class SARSALambdaGradientDescent: 
+
+    def __init__(self, actions, init_state, initial_q, memory_size, tilings, initial_theta):
+      self.lmbda = 0.8
+      self.gamma = 0.5
+      self.alpha = 0.1
+      self.epsilon = 0.1
+      
+      self.actions = actions
+      self.state = init_state
+      self.initial_q = initial_q
+      self.memory = []
+      self.memory_size = memory_size
+
+      self.theta = np.array(initial_theta + ([0] * len(actions)))
+      self.tilings = tilings
+      
+      self.e = np.array([0] * (len(initial_theta) + len(self.actions)))
+
+    def phi(self, state, action):
+      return np.array(self.tilings(state) + [(9 * 9 * 5 + self.actions.index(action))])
+
+    def q(self, state, action):
+      return sum(self.theta[self.phi(state, action)])  
+
+    def action(self):
+      self.next_action = self._action(self.state)
+      while True:
+        yield self.next_action
+
+    def _action(self, state):     
+      if (random() < self.epsilon):
+        return choice(self.actions)
+      else:
+        return self.pi(state)
+          
+    def pi(self, state):      
+      return max(map(lambda action: (action, self.q(state, action)), self.actions), 
+                 key = lambda opt: opt[1])[0]
+
+    def feedback(self, exp):
+        #print(exp)
+        a1 = self._action(exp.s1)        
+        
+        delta = exp.r0 + self.gamma * self.q(exp.s1, a1) - self.q(exp.s0, exp.a0)
+        #print(delta)
+
+        self.theta = self.theta + self.alpha * delta * self.e
+        self.e = self.gamma * self.lmbda * self.e
+
+        
+        for a in self.actions:
+          if a != a1:
+            self.e[self.phi(exp.s1, a)] = 0
+        self.e[self.phi(exp.s1, a1)] = 1    
+        
+        self.state = exp.s1
+        self.next_action = a1                       
         
 
 class Teacher:
@@ -590,12 +708,10 @@ class Teacher:
 
 
     def get_state(self, Game): 
-      print Game.get_state()
-      print self.state_vectorizer(Game.get_state())
       return self.state_vectorizer(Game.get_state())
 
     def teach(self, episodes):
-      return [self.single_play(50000) for i in range(episodes)]
+      return [self.single_play(5000) for i in range(episodes)]
 
     def single_play(self, n_steps = float("inf")):
       Game = deepcopy(self.game)
@@ -615,7 +731,6 @@ class Teacher:
           Game.input(action)
 
           exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, self.get_state(Game))
-          print exp
           self.algo.feedback(exp)
 
           history = [exp] + history
@@ -625,6 +740,8 @@ class Teacher:
         print "Finished after ", i_steps, " steps"    
       else:
         print "Failure."  
+
+      print Game.cum_reward  
 
       self.game_visualizer.next_game()
 

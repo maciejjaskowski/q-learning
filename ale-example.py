@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# python_example.py
-# Author: Ben Goodrich
-#
-# This is a direct port to python of the shared library example from
-# ALE provided in doc/examples/sharedLibraryInterfaceExample.cpp
 import sys
 from random import randrange
 from ale_python_interface import ALEInterface
@@ -119,14 +113,14 @@ class SpaceInvadersGame:
 rom_path = '/Users/maciej/Development/atari-roms'
 
 
-def test():
-  %run q_learning.py
-  %run ale-example.py
-  ale = init_ale()
-  game = SpaceInvadersGame(rom_path, ale)
-  #game.show_vectorized(game.vectorized(ale.getScreen()))
-  teacher = Teacher(game, RandomAlgo(game.get_actions()), SpaceInvadersGameVisualizer())
-  teacher.teach(1)
+#def test():
+#  %run q_learning.py
+#  %run ale-example.py
+#  ale = init_ale()
+#  game = SpaceInvadersGame(rom_path, ale)
+#  #game.show_vectorized(game.vectorized(ale.getScreen()))
+#  teacher = Teacher(game, RandomAlgo(game.get_actions()), SpaceInvadersGameVisualizer())
+#  teacher.teach(1)
 
     #def show(sqr):  
     #  square=pygame.Surface(1, 1)
