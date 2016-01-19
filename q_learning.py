@@ -8,6 +8,7 @@ from time import sleep
 from bisect import bisect
 import itertools
 import numpy as np
+import pandas as pd
 
 Point = namedtuple('Point', 'x y')
 Experience = namedtuple('Experience', 's0 a0 r0 s1')
@@ -319,9 +320,9 @@ class PcManGame:
 class MountainCarGame:
 
   def __init__(self):
-    self.position = random() * ( 0.5 - (-1.2)) + (-1.2)
+    self.position = -0.5 #random() * ( 0.5 - (-1.2)) + (-1.2)
     self.throttle = 0
-    self.velocity = random() * (0.03 - (-0.03)) + (-0.03)
+    self.velocity = 0 #random() * (0.07 - (-0.07)) + (-0.07)
     self.cum_reward = 0
     self.finished = False
 
@@ -331,18 +332,22 @@ class MountainCarGame:
     if ch in self.get_actions():
       self.throttle = ch
       
+
+    
+    self.velocity = self.velocity + 0.001 * self.throttle - 0.0025 * math.cos(3 * self.position)
+    if (self.velocity < -0.07):
+      self.velocity = -0.07
+    if (self.velocity > 0.07):
+      self.velocity = 0.07  
+
     self.position = self.position + self.velocity
     if self.position > 0.5:
       self.finished = True      
     if self.position < -1.2:
       self.position = -1.2
       self.velocity = 0  
-    self.velocity = self.velocity + 0.0001 * self.throttle - 0.0025 * math.cos(3 * self.position)
-    if (self.velocity < -0.07):
-      self.velocity = -0.07
-    if (self.velocity > 0.07):
-      self.velocity = 0.07  
-    self.cum_reward -= 1 - abs(self.position)
+        
+    self.cum_reward = self.cum_reward - 1 + abs(self.position + 0.5)
     return self
 
   
@@ -354,19 +359,33 @@ class MountainCarGame:
     return (self.position, self.velocity)
 
 class MountainCarGameVisualizer:
-  def __init__(self, print_every_n = 10):
+  def __init__(self, algo, print_every_n = 10):
     import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
     self.fig = plt.figure()
-    self.hl, = plt.plot([], [], color='k', linestyle='-')
-    self.mi, = plt.plot([], [], color='red', linestyle='-')
-    self.ma, = plt.plot([], [], color='red', linestyle='-')
-    plt.xlim(-1.3, 0.6)
-    plt.ylim(-0.1, 0.1)
+    self.velocity_position = self.fig.add_subplot(2,2,1)
+    self.expected_reward = self.fig.add_subplot(2, 2, 2, projection = '3d')
+    self.direction = self.fig.add_subplot(2, 2, 3)
+
+    self.hl, = self.velocity_position.plot([], [], color='k', linestyle='-')
+    self.mi, = self.velocity_position.plot([], [], color='red', linestyle='-')
+    self.ma, = self.velocity_position.plot([], [], color='red', linestyle='-')
+    self.dir = [0,0,0]
+    self.dir[0], = self.direction.plot([], [], color = 'red', linestyle='', marker = 'x', ms = 1)
+    self.dir[1], = self.direction.plot([], [], color = 'blue', linestyle='', marker = 'x', ms = 1)
+    self.dir[2], = self.direction.plot([], [], color = 'green', linestyle='', marker = 'x', ms = 1)
+    self.velocity_position.set_xlim([-1.3, 0.6])
+    self.velocity_position.set_ylim([-0.1, 0.1])
+    self.expected_reward.set_xlim([-1.3, 0.6])
+    self.expected_reward.set_ylim([-0.1, 0.1])
+    self.direction.set_xlim([-1.3, 0.6])
+    self.direction.set_ylim([-0.1, 0.1])
     self.history_x = []
     self.history_y = []
     self.i = -1
     self.print_every_n = print_every_n
     self.xlim = [0,0]
+    self.algo = algo
 
 
   def show(self, game):
@@ -384,6 +403,9 @@ class MountainCarGameVisualizer:
     self.xlim[0] = min(self.xlim[0], newx)
     self.xlim[1] = max(self.xlim[1], newx)
 
+    
+
+
     if self.i % self.print_every_n == 0:
       self.hl.set_xdata(self.history_x)
       self.hl.set_ydata(self.history_y)
@@ -392,42 +414,68 @@ class MountainCarGameVisualizer:
       self.ma.set_xdata([self.xlim[1]]*2)
       self.ma.set_ydata([-0.08, 0.08])
 
+      pos = np.arange(-0.9, 0.2, 0.03)
+      vel = np.arange(-0.04, 0.04, 0.004)
+      Pos,Vel = np.meshgrid(pos, vel)
+      #expected_reward = np.reshape([ self.algo.pi_value((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
+
+      direction = pd.DataFrame([ (_pos, _vel, self.algo.pi((_pos, _vel))) for _vel in vel for _pos in pos  ])
+      direction.columns = ["pos", "vel", "throttle"]
+      #direction = np.reshape([ self.algo.pi((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
+
+      #self.direction.contour(Pos, Vel, direction, 6,
+      #           colors='k')
+
+      col = {-1: 'red', 0: 'blue', 1: 'green'}
+      for name, group in direction.groupby('throttle'):
+        if (name >= 0):
+          self.dir[name + 1].set_xdata(group['pos'])
+          self.dir[name + 1].set_ydata(group['vel'])
+      #self.expected_reward.plot_surface(Pos, Vel, expected_reward)
+
       self.fig.canvas.draw()
       self.fig.canvas.flush_events()
 
       import time
       time.sleep(0.01)
+
+
+
+
     
     #print(game.get_state(), game.throttle)
     
   def next_game(self):
     pass
 
-def tilings(x, y, n, n_tilings): # n_tilings = 5, n = 9
+class Tilings: # n_tilings = 5, n = 9
 
-  dx = (x[1] - x[0])
-  dy = (y[1] - y[0])
-  range_x = np.array(range(n-1)) / (n-1) * dx + x[0] 
-  range_y = np.array(range(n-1)) / (n-1) * dy + y[0] 
+  def __init__(self, x, y, n, n_tilings):
+    self.dx = (x[1] - x[0])
+    self.dy = (y[1] - y[0])
+    self.range_x = np.array(range(n-1)) / (n-1) * self.dx + x[0] 
+    self.range_y = np.array(range(n-1)) / (n-1) * self.dy + y[0] 
+    self.n = n
+    self.n_tilings = n_tilings
 
-  def tiling():
-    distortion_x = randrange(0, 1000) / 1000 * dx
-    distortion_y = randrange(0, 1000) / 1000 * dy
-    return distortion_x + range_x, distortion_y + range_y 
+  def tiling(self):
+    distortion_x = [ x + random() * self.dx / (self.n-1) for x in self.range_x]
+    distortion_y = [ y + random() * self.dy / (self.n-1) for y in self.range_y]
+    return distortion_x, distortion_y
 
-  tilings = [ tiling() for i in range(n_tilings)]
+  def tilings(self): 
+    return [ self.tiling() for i in range(self.n_tilings)]
 
-  def one_at(i):
-    result = np.zeros(n * n)
+  def one_at(self, i):
+    result = np.zeros(self.n * self.n)
     result[i] = 1
     return result
 
-  def calc(p):
-    return tuple([(bisect(tiling[0], p[0]), bisect(tiling[1], p[1])) for tiling in tilings])
+  def calc(self):
+    ts = self.tilings()
+    return (lambda p: tuple([(bisect(tiling[0], p[0]), bisect(tiling[1], p[1])) for tiling in ts]), ts)
     #return [one_at(y * n + x) for x, y in locations]
     # flatten = reduce(lambda x, y: x+y, result)
-
-  return calc
    
 
 class StupidAlgo:
@@ -643,26 +691,34 @@ class SARSALambdaGradientDescent:
 
     def __init__(self, actions, init_state, initial_q, memory_size, tilings, initial_theta):
       self.lmbda = 0.8
-      self.gamma = 0.5
+      self.gamma = 0.7
       self.alpha = 0.1
       self.epsilon = 0.1
       
       self.actions = actions
+      self.action_ind = dict(zip(self.actions, range(len(self.actions))))
       self.state = init_state
       self.initial_q = initial_q
+      self.visited = set()
       self.memory = []
       self.memory_size = memory_size
 
-      self.theta = np.array(initial_theta + ([0] * len(actions)))
+      self.theta = np.concatenate([np.array([initial_theta]), np.array([initial_theta]), np.array([initial_theta])], axis = 0)
       self.tilings = tilings
       
-      self.e = np.array([0] * (len(initial_theta) + len(self.actions)))
+      self.e = np.concatenate([np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)])], axis = 0)
 
-    def phi(self, state, action):
-      return np.array(self.tilings(state) + [(9 * 9 * 5 + self.actions.index(action))])
+    def phi(self, state):
+      return np.array(self.tilings(state))
 
     def q(self, state, action):
-      return sum(self.theta[self.phi(state, action)])  
+      return sum(self.theta[self.action_ind[action]][self.phi(state)])  
+
+    def q_positive(self, state, action):
+      if (tuple(self.phi(state)), action) in self.visited:
+        return self.q(state, action)
+      else:
+        return self.initial_q  
 
     def action(self):
       self.next_action = self._action(self.state)
@@ -673,27 +729,38 @@ class SARSALambdaGradientDescent:
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
+
         return self.pi(state)
           
     def pi(self, state):      
-      return max(map(lambda action: (action, self.q(state, action)), self.actions), 
+      return max(map(lambda action: (action, self.q_positive(state, action)), self.actions), 
                  key = lambda opt: opt[1])[0]
+
+    def pi_value(self, state):
+      return max(map(lambda action: (action, self.q_positive(state, action)), self.actions), 
+                 key = lambda opt: opt[1])[1]
 
     def feedback(self, exp):
         #print(exp)
-        a1 = self._action(exp.s1)        
+        a1 = self._action(exp.s1)
+        print ("first visit? ", tuple(self.phi(exp.s0)), exp.a0, \
+            ((tuple(self.phi(exp.s0)), exp.a0) not in self.visited))
+        self.visited.add((tuple(self.phi(exp.s0)), exp.a0))        
         
         delta = exp.r0 + self.gamma * self.q(exp.s1, a1) - self.q(exp.s0, exp.a0)
-        #print(delta)
+        print("delta: ", delta, "sarsa: ", exp.s0, exp.a0, exp.r0, exp.s1, a1)
 
-        self.theta = self.theta + self.alpha * delta * self.e
-        self.e = self.gamma * self.lmbda * self.e
 
         
+        self.theta = self.theta + self.alpha * delta * self.e
+        self.e = self.gamma * self.lmbda * self.e
+          
+        
         for a in self.actions:
-          if a != a1:
-            self.e[self.phi(exp.s1, a)] = 0
-        self.e[self.phi(exp.s1, a1)] = 1    
+            self.e[self.action_ind[a]][self.phi(exp.s1)] = 0
+        self.e[self.action_ind[a1]][self.phi(exp.s1)] = 1      
+        
+        print("phi1: ", self.phi(exp.s1))
         
         self.state = exp.s1
         self.next_action = a1                       
@@ -711,7 +778,7 @@ class Teacher:
       return self.state_vectorizer(Game.get_state())
 
     def teach(self, episodes):
-      return [self.single_play(5000) for i in range(episodes)]
+      return [self.single_play(15000) for i in range(episodes)]
 
     def single_play(self, n_steps = float("inf")):
       Game = deepcopy(self.game)
