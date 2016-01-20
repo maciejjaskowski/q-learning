@@ -77,39 +77,40 @@ initial_theta = [0] * 9 * 9 * 5
 
 def sarsa_lambda_on_mountain_car_game():
   game = q.MountainCarGame()
-  my_tilings, til = q.Tilings((-1.2, 0.5), (-0.07, 0.07), tile_in_row, n_tilings).calc()
-  final_tilings = lambda (a, b): [x + y * tile_in_row + i * tile_in_row * tile_in_row for (x, y), i in zip(my_tilings((a,b)), range(n_tilings * n_tilings * tile_in_row))]
-  q_algo1 = q.SARSALambda(game.get_actions(), game.get_state(), 0, memory_size = 40, state_transformation = final_tilings)
+  state_adapter = q.mountain_car_game_tilings_state_adapter()
+
+  q_algo1 = q.SARSALambda(game.get_actions(), state_adapter(game.get_state()), 0, memory_size = 40)
   q_algo1.lmbda = 0.9
 
   q_algo1.gamma = 0.5
 
-  visualizer = q.MountainCarGameVisualizer(q_algo1)
-  teacher = q.Teacher(game, q_algo1, visualizer)
+  visualizer = q.MountainCarGameVisualizer(q_algo1)  
+  teacher = q.Teacher(game, q_algo1, visualizer, state_adapter = state_adapter)
 
   teacher.teach(1)
+
+  teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer(), state_adapter = state_adapter)
+  teacher.teach(30)
 
 def sarsa_lambda_gradient_descent():
   game = q.MountainCarGame()
 
   tile_in_row = 9
   n_tilings = 5
-  my_tilings, til = q.Tilings((-1.2, 0.5), (-0.07, 0.07), tile_in_row, n_tilings).calc()
-  final_tilings = lambda (a, b): [x + y * tile_in_row + i * tile_in_row * tile_in_row for (x, y), i in zip(my_tilings((a,b)), range(n_tilings * n_tilings * tile_in_row))]
 
-  initial_theta = [1] * n_tilings * tile_in_row * tile_in_row
+  state_adapter = q.mountain_car_game_tilings_state_adapter(n_tilings, tile_in_row)
 
-  #dot = sum(initial_theta[phi((2,2))])
+  state_adapter2 = lambda s: np.array(state_adapter(s))
 
-  q_algo1 = q.SARSALambdaGradientDescent(game.get_actions(), game.get_state(), 
-    initial_q = 0, memory_size = 20, tilings = final_tilings, initial_theta = initial_theta)
+  q_algo1 = q.SARSALambdaGradientDescent(game.get_actions(), state_adapter2(game.get_state()), 
+    initial_q = 0, initial_theta = [1] * n_tilings * tile_in_row * tile_in_row)
 
   q_algo1.epsilon = 0
   q_algo1.lmbda = 0.9
   q_algo1.gamma = 0.9
   q_algo1.alpha = 0.1
   
-  teacher = q.Teacher(game, q_algo1, q.MountainCarGameVisualizer(q_algo1))
+  teacher = q.Teacher(game, q_algo1, q.MountainCarGameVisualizer(q_algo1), state_adapter = state_adapter2)
   teacher.teach(1)
 
   teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())

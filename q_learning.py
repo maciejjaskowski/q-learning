@@ -326,13 +326,10 @@ class MountainCarGame:
     self.cum_reward = 0
     self.finished = False
 
-
   def input(self, ch):
     import math
     if ch in self.get_actions():
       self.throttle = ch
-      
-
     
     self.velocity = self.velocity + 0.001 * self.throttle - 0.0025 * math.cos(3 * self.position)
     if (self.velocity < -0.07):
@@ -350,13 +347,16 @@ class MountainCarGame:
     self.cum_reward = self.cum_reward - 1 + abs(self.position + 0.5)
     return self
 
-  
-
   def get_actions(self):
     return [-1, 0, 1]  
 
   def get_state(self):    
     return (self.position, self.velocity)
+
+def mountain_car_game_tilings_state_adapter(tile_in_row, n_tilings):
+  my_tilings, til = Tilings((-1.2, 0.5), (-0.07, 0.07), tile_in_row, n_tilings).calc()
+  return lambda (a, b): tuple([x + y * tile_in_row + i * tile_in_row * tile_in_row 
+      for (x, y), i in zip(my_tilings((a,b)), range(n_tilings * n_tilings * tile_in_row))])
 
 class MountainCarGameVisualizer:
   def __init__(self, algo, print_every_n = 10):
@@ -419,7 +419,7 @@ class MountainCarGameVisualizer:
       Pos,Vel = np.meshgrid(pos, vel)
       #expected_reward = np.reshape([ self.algo.pi_value((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
 
-      direction = pd.DataFrame([ (_pos, _vel, self.algo.pi((_pos, _vel))) for _vel in vel for _pos in pos  ])
+      direction = pd.DataFrame([ (_pos, _vel, self.algo.best_action((_pos, _vel))) for _vel in vel for _pos in pos  ])
       direction.columns = ["pos", "vel", "throttle"]
       #direction = np.reshape([ self.algo.pi((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
 
@@ -474,8 +474,6 @@ class Tilings: # n_tilings = 5, n = 9
   def calc(self):
     ts = self.tilings()
     return (lambda p: tuple([(bisect(tiling[0], p[0]), bisect(tiling[1], p[1])) for tiling in ts]), ts)
-    #return [one_at(y * n + x) for x, y in locations]
-    # flatten = reduce(lambda x, y: x+y, result)
    
 
 class StupidAlgo:
@@ -524,16 +522,16 @@ class SARS:
           if (random() < self.epsilon):
             yield choice(self.actions)
           else:
-            yield self.pi(self.state)
+            yield self.best_action(self.state)
           
-    def pi(self, state):
+    def best_action(self, state):
       return max(map(lambda action: (action, self._get_q(state, action)), 
             self.actions), key = lambda opt: opt[1])[0]
 
 
     def feedback(self, exp):
         q = self._get_q
-        qB = q(exp.s1, self.pi(self.state))
+        qB = q(exp.s1, self.best_action(self.state))
         q0 = q(exp.s0, exp.a0)
         self.Q[(exp.s0, exp.a0)] = (
             (1-self.alpha) * q0 + self.alpha * (exp.r0 + self.gamma * qB)
@@ -568,9 +566,9 @@ class SARSRepeat: #Dyna-Q
           if (random() < self.epsilon):
             yield choice(self.actions)
           else:
-            yield self.pi(self.state)
+            yield self.best_action(self.state)
           
-    def pi(self, state):
+    def best_action(self, state):
       return max(map(lambda action: (action, self._get_q(state, action)), 
             self.actions), key = lambda opt: opt[1])[0]
 
@@ -578,7 +576,7 @@ class SARSRepeat: #Dyna-Q
     def feedback(self, exp):
         q = self._get_q
 
-        self.memory += [(exp.s0, exp.a0, exp.r0, q(exp.s1, self.pi(self.state)))]
+        self.memory += [(exp.s0, exp.a0, exp.r0, q(exp.s1, self.best_action(self.state)))]
         if (len(self.memory) > self.history_length):
           self.memory = self.memory[1:]
 
@@ -587,8 +585,6 @@ class SARSRepeat: #Dyna-Q
 
         self.state = exp.s1  
 
-
-    
 
 class SARSA:    # or SARSA
 
@@ -608,17 +604,17 @@ class SARSA:    # or SARSA
         return v
 
     def action(self):
-      self.next_action = self._action(self.state)
+      self.next_action = self.eps_greedy_action(self.state)
       while True:
         yield self.next_action
 
-    def _action(self, state):     
+    def eps_greedy_action(self, state):     
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
-        return self.pi(state)
+        return self.best_action(state)
           
-    def pi(self, state):
+    def best_action(self, state):
       return max(map(lambda action: (action, self._get_q(state, action)), 
             self.actions), key = lambda opt: opt[1])[0]
 
@@ -641,8 +637,8 @@ class SARSALambda:
       self.alpha = 1
       self.epsilon = 0.2
       self.Q = {}
-      self.actions = actions
       self.state = init_state
+      self.actions = actions
       self.initial_q = initial_q
       self.memory = []
       self.memory_size = memory_size
@@ -662,9 +658,9 @@ class SARSALambda:
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
-        return self.pi(state)
+        return self.best_action(state)
           
-    def pi(self, state):
+    def best_action(self, state):
       return max(map(lambda action: (action, self._get_q(state, action)), 
             self.actions), key = lambda opt: opt[1])[0]
 
@@ -689,33 +685,27 @@ class SARSALambda:
 
 class SARSALambdaGradientDescent: 
 
-    def __init__(self, actions, init_state, initial_q, memory_size, tilings, initial_theta):
+    def __init__(self, actions, init_state, initial_q, initial_theta):
       self.lmbda = 0.8
       self.gamma = 0.7
       self.alpha = 0.1
       self.epsilon = 0.1
       
       self.actions = actions
-      self.action_ind = dict(zip(self.actions, range(len(self.actions))))
+      self.action_ind = dict(zip(actions, range(len(actions))))
       self.state = init_state
       self.initial_q = initial_q
       self.visited = set()
-      self.memory = []
-      self.memory_size = memory_size
 
-      self.theta = np.concatenate([np.array([initial_theta]), np.array([initial_theta]), np.array([initial_theta])], axis = 0)
-      self.tilings = tilings
+      self.theta = np.ones([len(actions), len(initial_theta)])
       
-      self.e = np.concatenate([np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)])], axis = 0)
-
-    def phi(self, state):
-      return np.array(self.tilings(state))
+      self.e = np.zeros([len(actions), len(initial_theta)])
 
     def q(self, state, action):
-      return sum(self.theta[self.action_ind[action]][self.phi(state)])  
+      return sum(self.theta[self.action_ind[action]][state])  
 
     def q_positive(self, state, action):
-      if (tuple(self.phi(state)), action) in self.visited:
+      if (tuple(state), action) in self.visited:
         return self.q(state, action)
       else:
         return self.initial_q  
@@ -729,53 +719,41 @@ class SARSALambdaGradientDescent:
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
-
-        return self.pi(state)
+        return self.best_action(state)
           
-    def pi(self, state):      
+    def best_action(self, state):      
       return max(map(lambda action: (action, self.q_positive(state, action)), self.actions), 
                  key = lambda opt: opt[1])[0]
 
-    def pi_value(self, state):
+    def best_action_value(self, state):
       return max(map(lambda action: (action, self.q_positive(state, action)), self.actions), 
                  key = lambda opt: opt[1])[1]
 
     def feedback(self, exp):
-        #print(exp)
         a1 = self._action(exp.s1)
-        print ("first visit? ", tuple(self.phi(exp.s0)), exp.a0, \
-            ((tuple(self.phi(exp.s0)), exp.a0) not in self.visited))
-        self.visited.add((tuple(self.phi(exp.s0)), exp.a0))        
+        self.visited.add((tuple(exp.s0), exp.a0))        
         
         delta = exp.r0 + self.gamma * self.q(exp.s1, a1) - self.q(exp.s0, exp.a0)
-        print("delta: ", delta, "sarsa: ", exp.s0, exp.a0, exp.r0, exp.s1, a1)
-
-
         
         self.theta = self.theta + self.alpha * delta * self.e
         self.e = self.gamma * self.lmbda * self.e
           
         
         for a in self.actions:
-            self.e[self.action_ind[a]][self.phi(exp.s1)] = 0
-        self.e[self.action_ind[a1]][self.phi(exp.s1)] = 1      
-        
-        print("phi1: ", self.phi(exp.s1))
+            self.e[self.action_ind[a]][exp.s1] = 0
+        self.e[self.action_ind[a1]][exp.s1] = 1      
         
         self.state = exp.s1
         self.next_action = a1                       
         
 
 class Teacher:
-    def __init__(self, game, algo, game_visualizer, state_vectorizer = lambda x: x):
+    def __init__(self, game, algo, game_visualizer, state_adapter = lambda x: x):
       self.game = game
       self.algo = algo
       self.game_visualizer = game_visualizer
-      self.state_vectorizer = state_vectorizer
+      self.state_adapter = state_adapter
 
-
-    def get_state(self, Game): 
-      return self.state_vectorizer(Game.get_state())
 
     def teach(self, episodes):
       return [self.single_play(15000) for i in range(episodes)]
@@ -791,13 +769,13 @@ class Teacher:
       while not Game.finished and i_steps < n_steps:
           i_steps += 1
           
-          old_state = self.get_state(Game)
+          old_state = Game.get_state()
           old_cum_reward = Game.cum_reward
 
           action = next(algo_input)
           Game.input(action)
 
-          exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, self.get_state(Game))
+          exp = Experience(self.state_adapter(old_state), action, Game.cum_reward - old_cum_reward, self.state_adapter(Game.get_state()))
           self.algo.feedback(exp)
 
           history = [exp] + history
