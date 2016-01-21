@@ -368,24 +368,21 @@ class MountainCarGameVisualizer:
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     self.fig = plt.figure()
-    self.velocity_position = self.fig.add_subplot(2,2,1)
-    self.expected_reward = self.fig.add_subplot(2, 2, 2, projection = '3d')
-    self.direction = self.fig.add_subplot(2, 2, 3)
+    self.velocity_position = self.fig.add_subplot(1,1,1)
+    #self.expected_reward = self.fig.add_subplot(2, 2, 2, projection = '3d')
+    #self.direction = self.fig.add_subplot(2, 2, 3)
 
 
     self.hl, = self.velocity_position.plot([], [], color='k', linestyle='-')
     self.mi, = self.velocity_position.plot([], [], color='red', linestyle='-')
     self.ma, = self.velocity_position.plot([], [], color='red', linestyle='-')
     self.dir = [0,0,0]
-    self.dir[0], = self.direction.plot([], [], color = 'red', linestyle='', marker = 'x', ms = 1)
-    self.dir[1], = self.direction.plot([], [], color = 'blue', linestyle='', marker = 'x', ms = 1)
-    self.dir[2], = self.direction.plot([], [], color = 'green', linestyle='', marker = 'x', ms = 1)
+    self.dir[0], = self.velocity_position.plot([], [], color = 'red', linestyle='', marker = '<', ms = 5)
+    self.dir[1], = self.velocity_position.plot([], [], color = 'blue', linestyle='', marker = '.', ms = 1)
+    self.dir[2], = self.velocity_position.plot([], [], color = 'green', linestyle='', marker = '>', ms = 5)
     self.velocity_position.set_xlim([-1.3, 0.6])
     self.velocity_position.set_ylim([-0.1, 0.1])
-    self.expected_reward.set_xlim([-1.3, 0.6])
-    self.expected_reward.set_ylim([-0.1, 0.1])
-    self.direction.set_xlim([-1.3, 0.6])
-    self.direction.set_ylim([-0.1, 0.1])
+    
     self.history_x = []
     self.history_y = []
     
@@ -420,8 +417,8 @@ class MountainCarGameVisualizer:
       self.ma.set_xdata([self.xlim[1]]*2)
       self.ma.set_ydata([-0.08, 0.08])
 
-      pos = np.arange(-0.9, 0.2, 0.03)
-      vel = np.arange(-0.04, 0.04, 0.004)
+      pos = np.arange(-1.2, 0.5, 0.05)
+      vel = np.arange(-0.07, 0.07, 0.005)
       Pos,Vel = np.meshgrid(pos, vel)
       #expected_reward = np.reshape([ self.algo.pi_value((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
 
@@ -633,13 +630,14 @@ class SARSA:    # or SARSA
 
 class SARSALambda: 
 
-    def __init__(self, actions, init_state, initial_q, memory_size):
+    def __init__(self, actions, init_state, initial_q, memory_size, state_adapter = lambda x: x):
       self.lmbda = 0.8
       self.gamma = 0.5
       self.alpha = 1
       self.epsilon = 0.2
       self.Q = {}
-      self.state = init_state
+      self.state = state_adapter(init_state)
+      self.state_adapter = state_adapter
       self.actions = actions
       self.initial_q = initial_q
       self.memory = []
@@ -660,13 +658,17 @@ class SARSALambda:
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
-        return self.best_action(state)
+        return self._pi(state)
+
+    def _pi(self, state):
+         return max(map(lambda action: (action, self._get_q(state, action)), 
+            self.actions), key = lambda opt: opt[1])[0] 
           
     def best_action(self, state):
-      return max(map(lambda action: (action, self._get_q(state, action)), 
-            self.actions), key = lambda opt: opt[1])[0]
+      return self._pi(self.state_adapter(state))
 
     def feedback(self, exp):
+        exp = Experience(self.state_adapter(exp.s0), exp.a0, exp.r0, self.state_adapter(exp.s1))
         q = self._get_q
         a1 = self._action(exp.s1)
         q1 = q(exp.s1, a1)
@@ -687,27 +689,31 @@ class SARSALambda:
 
 class SARSALambdaGradientDescent: 
 
-    def __init__(self, actions, init_state, initial_q, initial_theta):
+    def __init__(self, actions, init_state, initial_q, initial_theta, state_adapter = lambda x: x):
       self.lmbda = 0.8
       self.gamma = 0.7
       self.alpha = 0.1
       self.epsilon = 0.1
+      self.state_adapter = state_adapter
       
       self.actions = actions
-      self.action_ind = dict(zip(actions, range(len(actions))))
+      self.action_ind = dict(zip(self.actions, range(len(self.actions))))
       self.state = init_state
       self.initial_q = initial_q
       self.visited = set()
 
-      self.theta = np.zeros([len(actions), len(initial_theta)])
+      self.theta = np.array(np.concatenate([np.array([initial_theta]), np.array([initial_theta]), np.array([initial_theta])], axis = 0))
       
-      self.e = np.zeros([len(actions), len(initial_theta)])
+      self.e = np.concatenate([np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)])], axis = 0)
+
+    def phi(self, state):
+      return self.state_adapter(state)
 
     def q(self, state, action):
-      return sum(self.theta[self.action_ind[action]][state])  
+      return sum(self.theta[self.action_ind[action]][self.phi(state)])  
 
     def q_positive(self, state, action):
-      if (tuple(state), action) in self.visited:
+      if (tuple(self.phi(state)), action) in self.visited:
         return self.q(state, action)
       else:
         return self.initial_q  
@@ -721,48 +727,46 @@ class SARSALambdaGradientDescent:
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
-        return self.best_action(state)
+
+        return self.pi(state)
           
-    def best_action(self, state):      
+    def best_action(self, state):
+      return self.pi(state)
+
+    def pi(self, state):      
       return max(map(lambda action: (action, self.q_positive(state, action)), self.actions), 
                  key = lambda opt: opt[1])[0]
 
-    def best_action_value(self, state):
+    def pi_value(self, state):
       return max(map(lambda action: (action, self.q_positive(state, action)), self.actions), 
                  key = lambda opt: opt[1])[1]
 
     def feedback(self, exp):
         a1 = self._action(exp.s1)
-        self.visited.add((tuple(exp.s0), exp.a0))        
+        self.visited.add((tuple(self.phi(exp.s0)), exp.a0))        
         
         delta = exp.r0 + self.gamma * self.q(exp.s1, a1) - self.q(exp.s0, exp.a0)
-        self.last = {'delta': delta,
-                     's0': exp.s0,
-                     'a0': exp.a0,
-                     'r0': exp.r0,
-                     's1': exp.s1,
-                     'a1': a1,
-                     'q1': self.q(exp.s1, a1),
-                     'q0': self.q(exp.s0, exp.a0)}
         
         self.theta = self.theta + self.alpha * delta * self.e
-        self.e = self.gamma * self.lmbda * self.e          
+        self.e = self.gamma * self.lmbda * self.e
+          
         
         for a in self.actions:
-            self.e[self.action_ind[a]][exp.s1] = 0
-        self.e[self.action_ind[a1]][exp.s1] = 1      
+            self.e[self.action_ind[a]][self.phi(exp.s1)] = 0
+        self.e[self.action_ind[a1]][self.phi(exp.s1)] = 1      
+        
+        print("phi1: ", self.phi(exp.s1))
         
         self.state = exp.s1
-        self.next_action = a1        
+        self.next_action = a1               
         
         
 
 class Teacher:
-    def __init__(self, new_game, algo, game_visualizer, state_adapter = lambda x: x):
+    def __init__(self, new_game, algo, game_visualizer):
       self.new_game = new_game
       self.algo = algo
       self.game_visualizer = game_visualizer
-      self.state_adapter = state_adapter
       self.algo_input = self.algo.action()
 
 
@@ -801,9 +805,8 @@ class Teacher:
       action = next(self.algo_input)
       Game.input(action)
 
-      exp = Experience(self.state_adapter(old_state), action, Game.cum_reward - old_cum_reward, self.state_adapter(Game.get_state()))
+      exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, Game.get_state())
       self.algo.feedback(exp)
       
       self.game_visualizer.show(Game)  
       return exp
-#Todo: 
