@@ -1,6 +1,8 @@
 
 import q_learning as q
 import numpy as np
+import ale_game as ag
+from copy import deepcopy
 
 board_simple = q.Game([[0, 0, 0, 0, 0],
                      [0, 1, 1,-1,99],
@@ -45,7 +47,50 @@ pc_man =    q.PcManGame([[-1,-1, 9, 9, 9, 9, 9, 9,-1,-1],
                  ghost_start = q.Point(7, 0)                 
                  )        
 
+def random_on_space_invaders():
+  import q_learning as q
+  import numpy as np
+  import ale_game as ag
+  reload(q)
+  reload(ag)
+  ale = ag.init()
+  game = ag.SpaceInvadersGame(ale)
+  #game.show_vectorized(game.vectorized(ale.getScreen()))
+  teacher = q.Teacher(game, q.RandomAlgo(game.get_actions()), ag.SpaceInvadersGameVectorizedVisualizer())
+  teacher.teach(1)
 
+def sarsa_gd_on_space_invaders():
+  import q_learning as q
+  import numpy as np
+  import ale_game as ag
+  reload(q)
+  reload(ag)
+  ale = ag.init()
+
+  def state_adapter(scr): 
+    vect = np.reshape(ag.vectorized(scr, 14, 20), 14 * 20 * 7)
+    return np.where(vect)[0]
+
+  game = ag.SpaceInvadersGame(ale)
+  algo = q.SARSALambdaGradientDescent(game.get_actions(), state_adapter(game.get_state()), 
+    initial_q = 5, initial_theta = [1] * 14 * 20 * 7)
+  algo.gamma = 0.95
+  def new_game():
+    game.ale.reset_game()
+    game.finished = False
+    game.cum_reward = 0
+    return game
+
+ 
+
+  teacher = q.Teacher(new_game, algo, ag.SpaceInvadersGameVectorizedVisualizer(), state_adapter = state_adapter)
+  Game = new_game()
+  teacher.single_step(Game)
+  algo.last
+  teacher.teach(1)  
+
+  teacher = q.Teacher(new_game, algo, q.GameNoVisualizer(), state_adapter = state_adapter)
+  teacher.teach(1)  
 
 def random_on_mountain_car_game():
   game = q.MountainCarGame()
@@ -76,16 +121,22 @@ def on_policy_is_more_about_safety():
 initial_theta = [0] * 9 * 9 * 5
 
 def sarsa_lambda_on_mountain_car_game():
+  import q_learning as q
+  import numpy as np
+  reload(q)
   game = q.MountainCarGame()
-  state_adapter = q.mountain_car_game_tilings_state_adapter()
+  
+  state_adapter = q.mountain_car_game_tilings_state_adapter(tile_in_row = 9, n_tilings = 5)
 
   q_algo1 = q.SARSALambda(game.get_actions(), state_adapter(game.get_state()), 0, memory_size = 40)
   q_algo1.lmbda = 0.9
 
   q_algo1.gamma = 0.5
 
-  visualizer = q.MountainCarGameVisualizer(q_algo1)  
-  teacher = q.Teacher(game, q_algo1, visualizer, state_adapter = state_adapter)
+  visualizer = q.MountainCarGameVisualizer(q_algo1, state_adapter = state_adapter)
+  def new_game():
+    return deepcopy(game)  
+  teacher = q.Teacher(new_game, q_algo1, visualizer, state_adapter = state_adapter)
 
   teacher.teach(1)
 
@@ -109,8 +160,11 @@ def sarsa_lambda_gradient_descent():
   q_algo1.lmbda = 0.9
   q_algo1.gamma = 0.9
   q_algo1.alpha = 0.1
+
+    def new_game():
+    return deepcopy(game)  
   
-  teacher = q.Teacher(game, q_algo1, q.MountainCarGameVisualizer(q_algo1), state_adapter = state_adapter2)
+  teacher = q.Teacher(new_game, q_algo1, q.MountainCarGameVisualizer(q_algo1), state_adapter = state_adapter2)
   teacher.teach(1)
 
   teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())

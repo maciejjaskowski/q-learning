@@ -359,13 +359,19 @@ def mountain_car_game_tilings_state_adapter(tile_in_row, n_tilings):
       for (x, y), i in zip(my_tilings((a,b)), range(n_tilings * n_tilings * tile_in_row))])
 
 class MountainCarGameVisualizer:
-  def __init__(self, algo, print_every_n = 10):
+  def __init__(self, algo, print_every_n = 10, state_adapter = lambda x: x):
+    self.state_adapter = state_adapter
+    self.algo = algo
+    self.print_every_n = print_every_n
+    self.i = -1
+
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     self.fig = plt.figure()
     self.velocity_position = self.fig.add_subplot(2,2,1)
     self.expected_reward = self.fig.add_subplot(2, 2, 2, projection = '3d')
     self.direction = self.fig.add_subplot(2, 2, 3)
+
 
     self.hl, = self.velocity_position.plot([], [], color='k', linestyle='-')
     self.mi, = self.velocity_position.plot([], [], color='red', linestyle='-')
@@ -382,10 +388,10 @@ class MountainCarGameVisualizer:
     self.direction.set_ylim([-0.1, 0.1])
     self.history_x = []
     self.history_y = []
-    self.i = -1
-    self.print_every_n = print_every_n
+    
+    
     self.xlim = [0,0]
-    self.algo = algo
+    
 
 
   def show(self, game):
@@ -397,7 +403,7 @@ class MountainCarGameVisualizer:
       self.history_x = self.history_x[1:]
       self.history_y = self.history_y[1:]
 
-    newx, newy = game.get_state()
+    newx, newy = self.state_adapter(game.get_state())
     self.history_x.append(newx)
     self.history_y.append(newy)
     self.xlim[0] = min(self.xlim[0], newx)
@@ -419,16 +425,12 @@ class MountainCarGameVisualizer:
       Pos,Vel = np.meshgrid(pos, vel)
       #expected_reward = np.reshape([ self.algo.pi_value((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
 
-      direction = pd.DataFrame([ (_pos, _vel, self.algo.best_action((_pos, _vel))) for _vel in vel for _pos in pos  ])
+      direction = pd.DataFrame([ (_pos, _vel, self.algo.best_action(self.state_adapter((_pos, _vel)))) for _vel in vel for _pos in pos  ])
       direction.columns = ["pos", "vel", "throttle"]
-      #direction = np.reshape([ self.algo.pi((_pos, _vel)) for _vel in vel for _pos in pos  ], np.shape(Pos))
-
-      #self.direction.contour(Pos, Vel, direction, 6,
-      #           colors='k')
-
+      
       col = {-1: 'red', 0: 'blue', 1: 'green'}
       for name, group in direction.groupby('throttle'):
-        if (name >= 0):
+        #if (name >= 0):
           self.dir[name + 1].set_xdata(group['pos'])
           self.dir[name + 1].set_ydata(group['vel'])
       #self.expected_reward.plot_surface(Pos, Vel, expected_reward)
@@ -697,7 +699,7 @@ class SARSALambdaGradientDescent:
       self.initial_q = initial_q
       self.visited = set()
 
-      self.theta = np.ones([len(actions), len(initial_theta)])
+      self.theta = np.zeros([len(actions), len(initial_theta)])
       
       self.e = np.zeros([len(actions), len(initial_theta)])
 
@@ -734,52 +736,51 @@ class SARSALambdaGradientDescent:
         self.visited.add((tuple(exp.s0), exp.a0))        
         
         delta = exp.r0 + self.gamma * self.q(exp.s1, a1) - self.q(exp.s0, exp.a0)
+        self.last = {'delta': delta,
+                     's0': exp.s0,
+                     'a0': exp.a0,
+                     'r0': exp.r0,
+                     's1': exp.s1,
+                     'a1': a1,
+                     'q1': self.q(exp.s1, a1),
+                     'q0': self.q(exp.s0, exp.a0)}
         
         self.theta = self.theta + self.alpha * delta * self.e
-        self.e = self.gamma * self.lmbda * self.e
-          
+        self.e = self.gamma * self.lmbda * self.e          
         
         for a in self.actions:
             self.e[self.action_ind[a]][exp.s1] = 0
         self.e[self.action_ind[a1]][exp.s1] = 1      
         
         self.state = exp.s1
-        self.next_action = a1                       
+        self.next_action = a1        
+        
         
 
 class Teacher:
-    def __init__(self, game, algo, game_visualizer, state_adapter = lambda x: x):
-      self.game = game
+    def __init__(self, new_game, algo, game_visualizer, state_adapter = lambda x: x):
+      self.new_game = new_game
       self.algo = algo
       self.game_visualizer = game_visualizer
       self.state_adapter = state_adapter
+      self.algo_input = self.algo.action()
 
 
     def teach(self, episodes):
       return [self.single_play(15000) for i in range(episodes)]
 
     def single_play(self, n_steps = float("inf")):
-      Game = deepcopy(self.game)
-      algo_input = self.algo.action()
+      Game = self.new_game()
+      
 
       history = []
 
       i_steps = 0
 
       while not Game.finished and i_steps < n_steps:
-          i_steps += 1
-          
-          old_state = Game.get_state()
-          old_cum_reward = Game.cum_reward
-
-          action = next(algo_input)
-          Game.input(action)
-
-          exp = Experience(self.state_adapter(old_state), action, Game.cum_reward - old_cum_reward, self.state_adapter(Game.get_state()))
-          self.algo.feedback(exp)
-
-          history = [exp] + history
-          self.game_visualizer.show(Game)  
+        i_steps += 1
+        exp = self.single_step(Game)
+        history = [exp] + history
 
       if Game.finished:
         print "Finished after ", i_steps, " steps"    
@@ -792,4 +793,17 @@ class Teacher:
 
       return (i_steps, Game.cum_reward)
 
+    def single_step(self, Game):
+
+      old_state = Game.get_state()
+      old_cum_reward = Game.cum_reward
+
+      action = next(self.algo_input)
+      Game.input(action)
+
+      exp = Experience(self.state_adapter(old_state), action, Game.cum_reward - old_cum_reward, self.state_adapter(Game.get_state()))
+      self.algo.feedback(exp)
+      
+      self.game_visualizer.show(Game)  
+      return exp
 #Todo: 
