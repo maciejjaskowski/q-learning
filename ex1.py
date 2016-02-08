@@ -4,11 +4,11 @@ import numpy as np
 import ale_game as ag
 from copy import deepcopy
 
-board_simple = q.Game([[0, 0, 0, 0, 0],
+board_simple = lambda: q.Game([[0, 0, 0, 0, 0],
                      [0, 1, 1,-1,99],
                      [0,-1, 0,10,-9]], q.Point(0, 2), q.Point(4, 1))
 
-board_big = q.Game([[ 0, 0, 0, 0, 0,-9, 0, 0, 0, 9],
+board_big = lambda: q.Game([[ 0, 0, 0, 0, 0,-9, 0, 0, 0, 9],
                   [-1, 9,-1,-1, 0, 0, 0, 0,-9, 0],
                   [-1, 9,-1, 0,-1,-1, 0, 0, 0, 0],
                   [-1, 9, 9, 9, 9,-1, 0, 0, 0, 0],
@@ -17,7 +17,7 @@ board_big = q.Game([[ 0, 0, 0, 0, 0,-9, 0, 0, 0, 9],
                  q.Point(0, 5),
                  q.Point(7, 5))
 
-game_big2 = q.Game([[ 0, 0, 0, 0, 0,-9, 0, 0, 0, 9],
+game_big2 = lambda: q.Game([[ 0, 0, 0, 0, 0,-9, 0, 0, 0, 9],
                   [-1, 9,-1,-1, 0, 0, 0, 0,-9, 0],
                   [-1, 9,-1, 0,-1,-1, 0, 0, 0, 0],
                   [-1, 9, 9, 9, 9,-1, 0, 0, 0, 0],
@@ -26,7 +26,7 @@ game_big2 = q.Game([[ 0, 0, 0, 0, 0,-9, 0, 0, 0, 9],
                  q.Point(0, 5),
                  q.Point(7, 0))
 
-game_collect_all = q.CollectAllGame([[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,-1],
+game_collect_all = lambda: q.CollectAllGame([[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,-1],
                                      [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,-1],
                                      [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,-1],
                                      [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,-1],
@@ -36,8 +36,10 @@ game_collect_all = q.CollectAllGame([[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,-1],
                                      [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], 
                                    q.Point(0, 6),
                                    q.Point(9, 6))
+
+
         
-pc_man =    q.PcManGame([[-1,-1, 9, 9, 9, 9, 9, 9,-1,-1],
+pc_man =    lambda: q.PcManGame([[-1,-1, 9, 9, 9, 9, 9, 9,-1,-1],
                   [-1, 9, 9, 9,-1, 9,-1, 9, 9, 9],
                   [-1, 9,-1, 9,-1,-1, 9, 9,-1, 9],
                   [ 9, 9, 9, 9, 9, 9, 9,-1, 9, 9],
@@ -63,18 +65,26 @@ def sarsa_gd_on_space_invaders():
   import q_learning as q
   import numpy as np
   import ale_game as ag
+  import matplotlib.pyplot as plt
+  plt.ion()
   reload(q)
   reload(ag)
   ale = ag.init()
+  run = '1'
+
+  n_colors = 5
 
   def state_adapter(scr): 
-    vect = np.reshape(ag.vectorized(scr, 14, 20), 14 * 20 * 7)
+    vect = np.reshape(ag.vectorized(scr, 14, 20), 14 * 20 * n_colors)
     return np.where(vect)[0]
 
   game = ag.SpaceInvadersGame(ale)
-  algo = q.SARSALambdaGradientDescent(game.get_actions(), state_adapter(game.get_state()), 
-    initial_q = 5, initial_theta = [1] * 14 * 20 * 7)
-  algo.gamma = 0.95
+  q_algo1 = q.SARSALambdaGradientDescent(game.get_actions(), game.get_state(), 
+    initial_q = 5, initial_theta = [1] * 14 * 20 * n_colors, be_positive = False, state_adapter = state_adapter)
+  q_algo1.epsilon = 0.05
+  q_algo1.lmbda = 0.99 # 0.9
+  q_algo1.gamma = 0.999
+  q_algo1.alpha = 0.5
   def new_game():
     game.ale.reset_game()
     game.finished = False
@@ -83,14 +93,94 @@ def sarsa_gd_on_space_invaders():
 
  
 
-  teacher = q.Teacher(new_game, algo, ag.SpaceInvadersGameVectorizedVisualizer(), state_adapter = state_adapter)
-  Game = new_game()
-  teacher.single_step(Game)
-  algo.last
+  teacher = q.Teacher(new_game, q_algo1, ag.SpaceInvadersGameVectorizedVisualizer(), repeat_action = 3)
+  
+#  teacher.single_step(Game)
+  q_algo1.epsilon = 0
+  q_algo1.log_freq = 1
   teacher.teach(1)  
 
-  teacher = q.Teacher(new_game, algo, q.GameNoVisualizer(), state_adapter = state_adapter)
-  teacher.teach(1)  
+  initial_training = 1000
+  training_decay_from = 95
+  training_decay_ex = 50
+
+
+  result_test = []
+  result_1 = []
+  result_2 = []
+
+  teacher = q.Teacher(new_game, q_algo1, q.GameNoVisualizer(), repeat_action = 3)
+  q_algo1.log_freq = 0.05
+  q_algo1.epsilon = 1  
+  result_1 = teacher.teach(initial_training)
+
+
+  q_algo1.epsilon = 0
+  q_algo1.log_freq = 0.05
+  result_test.append(teacher.teach(1))
+
+  for i in range(training_decay_from):
+    q_algo1.epsilon = 1 - i/100
+    teacher = q.Teacher(new_game, q_algo1, q.GameNoVisualizer(), repeat_action = 3)
+    result_2.append(teacher.teach(training_decay_ex))
+    q_algo1.epsilon = 0
+    result_test.append(teacher.teach(1))  
+
+
+
+
+
+  import cPickle as pickle
+  with open('gradient_descent.theta' + run , 'wb') as handle:
+    pickle.dump(q_algo1.theta, handle)
+
+  with open('gradient_descent.gamma' + run, 'wb') as handle:
+    pickle.dump(q_algo1.gamma, handle)
+
+  with open('gradient_descent.lmbda' + run, 'wb') as handle:
+    pickle.dump(q_algo1.lmbda, handle)
+
+  with open('gradient_descent.alpha' + run, 'wb') as handle:
+    pickle.dump(q_algo1.alpha, handle)  
+
+  r1 = [a[1] for a in result_1]  
+  plt.plot(np.array([x[1] - x[0] for x in zip(np.cumsum(r1), np.cumsum(r1)[200:])])/200)
+
+  r2 = [a[1] for r in result_2 for a in r]  
+  plt.plot(np.array([x[1] - x[0] for x in zip(np.cumsum(r2), np.cumsum(r2)[200:])])/200)
+
+  r_test = [a[1] for r in result_test for a in r]
+  plt.plot(np.array([x[1] - x[0] for x in zip(np.cumsum(r_test), np.cumsum(r_test)[50:])])/50)
+
+  r_4 = [a[1] for a in result_4 ]
+  plt.plot(np.array([x[1] - x[0] for x in zip(np.cumsum(r_test), np.cumsum(r_4)[2:])])/2)
+  
+
+  q_algo1.epsilon = 0.1
+  teacher = q.Teacher(new_game, q_algo1, q.GameNoVisualizer(), repeat_action = 3)
+  teacher.teach(100)
+
+  
+
+
+def sarsa_lambda_prioritized_memory_on_cliff():
+  import q_learning as q
+  import numpy as np
+  from copy import deepcopy
+  reload(q)
+  game = game_collect_all
+  memory = q.PrioritizedMemory(100, 0)
+  algo = q.SARSALambdaPrioritizedMemory(game().get_actions(), memory)
+
+  algo.epsilon = 0.1
+  algo.gamma = 0.7
+  algo.alpha = 0.1
+
+  teacher = q.Teacher(game, algo, q.GameNoVisualizer())  
+
+  result_0 = teacher.teach(60)
+
+
 
 def random_on_mountain_car_game():
   game = q.MountainCarGame()
@@ -125,20 +215,18 @@ def sarsa_lambda_on_mountain_car_game():
   import numpy as np
   from copy import deepcopy
   reload(q)
-  game = q.MountainCarGame()
+  game = q.MountainCarGame
   
   state_adapter = q.mountain_car_game_tilings_state_adapter(tile_in_row = 9, n_tilings = 5)
 
-  q_algo1 = q.SARSALambda(game.get_actions(), game.get_state(), 0, memory_size = 40, state_adapter = state_adapter)
+  q_algo1 = q.SARSALambda(game().get_actions(), game().get_state(), 0, memory_size = 40, state_adapter = state_adapter)
   q_algo1.epsilon = 0.2
   q_algo1.lmbda = 0.9
 
   q_algo1.gamma = 0.5
 
   visualizer = q.MountainCarGameVisualizer(q_algo1)
-  def new_game():
-    return deepcopy(game)  
-  teacher = q.Teacher(new_game, q_algo1, visualizer)
+  teacher = q.Teacher(game, q_algo1, visualizer)
 
   teacher.teach(1)
 
@@ -152,7 +240,7 @@ def sarsa_lambda_gradient_descent():
   import numpy as np
   from copy import deepcopy
   reload(q)
-  game = q.MountainCarGame()
+  game = q.MountainCarGame
 
   tile_in_row = 9
   n_tilings = 5
@@ -167,17 +255,15 @@ def sarsa_lambda_gradient_descent():
 
   initial_theta = np.array([1] * tile_in_row * tile_in_row * n_tilings)
 
-  q_algo1 = q.SARSALambdaGradientDescent(game.get_actions(), game.get_state(), 
+  q_algo1 = q.SARSALambdaGradientDescent(game().get_actions(), game().get_state(), 
     initial_q = 0, initial_theta = initial_theta, state_adapter = state_adapter2)
 
   q_algo1.epsilon = 0.02
-  q_algo1.lmbda = 0.9
+  q_algo1.lmbda = 0.5
   q_algo1.gamma = 0.9
   q_algo1.alpha = 0.1
-
-  new_game = lambda: deepcopy(game)
   
-  teacher = q.Teacher(new_game, q_algo1, q.MountainCarGameVisualizer(q_algo1))
+  teacher = q.Teacher(game, q_algo1, q.MountainCarGameVisualizer(q_algo1))
   teacher.teach(1)
 
   teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
@@ -186,29 +272,31 @@ def sarsa_lambda_gradient_descent():
 
 def sarsa_lambda_example():
   game = game_collect_all
-  q_algo1 = q.SARSALambda(game.get_actions(), game.get_state(), 20, 4)
+  q_algo1 = q.SARSALambda(game().get_actions(), game().get_state(), 20, 4)
   q_algo1.lmbda = 0.8
 
   q_algo1.gamma = 0.5
+
 
   teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
 
   q_algo1.alpha = 0.1
   q_algo1.epsilon = 0.1
-  teacher.teach(80)
+  result_1 = teacher.teach(60)
 
   #q_algo1.alpha = 0.1
   #q_algo1.epsilon = 0.1
   #teacher.teach(5000, verbose = lambda x: False)
 
-  teacher = q.Teacher(game, q_algo1, q.CollectAllGameVisualizer())
+
+  teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
   #q_algo1.alpha = 0
   q_algo1.epsilon = 0  
-  teacher.teach(1)  
+  result_1 = teacher.teach(1)  
 
 def sarsa_lambda_example2():
   game = game_big2
-  q_algo1 = q.SARSALambda(game.get_actions(), game.get_state(), 20, 4)
+  q_algo1 = q.SARSALambda(game().get_actions(), game().get_state(), 20, 4)
   q_algo1.lmbda = 0.9999
 
   q_algo1.gamma = 0.5
@@ -230,11 +318,11 @@ def sarsa_lambda_example2():
 
 def off_policy_example():
   game = game_collect_all
-  q_algo1 = q.SARSRepeat(game.get_actions(), game.get_state())
+  q_algo1 = q.SARSRepeat(game().get_actions(), game().get_state())
 
   q_algo1.gamma = 0.5
 
-  teacher = q.Teacher(game, q_algo1, q.GameNoVisualizer())
+  teacher = q.Teacher(game(), q_algo1, q.GameNoVisualizer())
 
   q_algo1.alpha = 0.1
   q_algo1.epsilon = 0.1
@@ -244,7 +332,7 @@ def off_policy_example():
   #q_algo1.epsilon = 0.1
   #teacher.teach(5000, verbose = lambda x: False)
 
-  teacher = q.Teacher(game, q_algo1, q.CollectAllGameVisualizer())
+  teacher = q.Teacher(game(), q_algo1, q.CollectAllGameVisualizer())
   #q_algo1.alpha = 0
   q_algo1.epsilon = 0  
   teacher.teach(1)  
@@ -252,9 +340,37 @@ def off_policy_example():
 
 
 class Tester:
-  def test(self, game, algo_factory, n = 100):
-    return np.array([q.Teacher(game, algo_factory(game)).teach(100, verbose = lambda x: False) 
-      for i in range(0, n)]).mean(axis = 0)
+  def test(self, game_factory, algo_factory, teach_rounds = 100, repeat = 100):
+    return np.array([q.Teacher(game_factory, algo_factory(), q.GameNoVisualizer()).teach(teach_rounds) 
+      for i in range(0, repeat)]).mean(axis = 0)
+
+
+def test():
+  import q_learning as q
+  import numpy as np
+  from copy import deepcopy
+  reload(q)
+  game = game_collect_all
+  
+  def algo_prio():
+    memory = q.PrioritizedMemory(100, 0)
+    algo = q.SARSALambdaPrioritizedMemory(game().get_actions(), memory)
+    algo.epsilon = 0.1
+    algo.gamma = 0.7
+    algo.alpha = 0.1
+    return algo
+
+  def algo_sarsa_lambda():
+    q_algo1 = q.SARSALambda(game().get_actions(), game().get_state(), 20, 4)
+    q_algo1.lmbda = 0.8
+    q_algo1.gamma = 0.7
+    q_algo1.alpha = 0.1
+    q_algo1.epsilon = 0.1
+    return q_algo1
+
+  result_prio = Tester().test(game, algo_prio, teach_rounds = 60, repeat = 50)
+  result_sarsa_lambda = Tester().test(game, algo_sarsa_lambda, teach_rounds = 60, repeat = 50)
+
         
 
 def teach_off_repeat():

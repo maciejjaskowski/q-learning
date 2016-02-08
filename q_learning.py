@@ -10,8 +10,11 @@ import itertools
 import numpy as np
 import pandas as pd
 
+from blist import sortedlist
+
+
 Point = namedtuple('Point', 'x y')
-Experience = namedtuple('Experience', 's0 a0 r0 s1')
+Experience = namedtuple('Experience', 's0 a0 r0 s1 game_over')
 
 def getOrElse(d, k, el):
     if (k in d):
@@ -668,7 +671,7 @@ class SARSALambda:
       return self._pi(self.state_adapter(state))
 
     def feedback(self, exp):
-        exp = Experience(self.state_adapter(exp.s0), exp.a0, exp.r0, self.state_adapter(exp.s1))
+        exp = Experience(self.state_adapter(exp.s0), exp.a0, exp.r0, self.state_adapter(exp.s1), exp.game_over)
         q = self._get_q
         a1 = self._action(exp.s1)
         q1 = q(exp.s1, a1)
@@ -686,34 +689,135 @@ class SARSALambda:
         self.state = exp.s1
         self.next_action = a1     
 
+class PrioritizedMemory:
+  def __init__(self, size, alpha):
+    self.memory = sortedlist()
+    self.memory_size = size
+    self.memory_alpha = alpha
+    self.visited = set()
+
+  def add(self, delta, exp):
+    el = (-delta, exp)
+    if el in self.visited:
+      self.memory.discard(el)
+    self.memory.add(el)
+    self.visited.add(el)
+    if (len(self.memory) > self.memory_size):
+      self.memory = self.memory[0:self.memory_size]
+
+  def choose_and_discard(self):
+    n_delta, exp = self._choose()
+    self.memory.discard((n_delta, exp))
+    return -n_delta, exp
+
+  def _choose(self):  
+    rand = random()
+    s = 0
+    s_e = 1
+    for (n_delta, exp), s_i in zip(self.memory, range(self.memory_size)):
+      s_e *= 0.5
+      s += s_e
+      if rand < s:
+        return n_delta, exp    
+    return self.memory[0]   
+
+class SARSALambdaPrioritizedMemory:
+
+  def __init__(self, actions, memory, state_adapter = lambda x: x):
+    self.actions = actions
+    self.state_adapter = state_adapter
+    self.memory = memory
+
+    self.actions_performed = 0
+
+    
+    self.sleep_every = 10
+    self.sleep_repeat = 20
+
+    self.lmbda = 0.9
+    self.gamma = 0.7
+    self.alpha = 0.1
+    self.epsilon = 0.1
+    self.q_initial = 0
+
+    self.Q = {}
+
+
+  def action(self):
+    self.next_action = choice(self.actions)
+    while True:
+      yield self.next_action
+
+  def _action(self, state):
+    if (random() < self.epsilon):
+        return choice(self.actions)
+    else:
+        return self._best_action(state)
+
+  def _q(self, state, action):
+    return self.Q.setdefault((state, action), self.q_initial)
+
+  def _best_action(self, state):
+    aq = [(action, self._q(state, action)) for action in self.actions]
+    return max(aq, key = lambda opt: opt[1])[0]  
+
+  def _best_action_value(self, state):
+    aq = [(action, self._q(state, action)) for action in self.actions]
+    return max(aq, key = lambda opt: opt[1])[1]              
+
+  def feedback(self, _exp):    
+    exp = Experience(self.state_adapter(_exp.s0), _exp.a0, _exp.r0, self.state_adapter(_exp.s1), _exp.game_over)
+
+    self.next_action = self._action(exp.s1)
+    self.actions_performed += 1
+
+    self.memory.add(999999, exp)
+    
+    if self.actions_performed >= self.sleep_every:
+      self.sleep_every = 0
+      for i in xrange(self.sleep_repeat):
+        _, exp = self.memory.choose_and_discard()    
+        delta = exp.r0 + self.gamma * self._best_action_value(exp.s1) - self._q(exp.s0, exp.a0)
+
+        self.memory.add(delta, exp)
+        
+        self.Q[(exp.s0, exp.a0)] = self._q(exp.s0, exp.a0) + self.alpha * delta
+      
 
 class SARSALambdaGradientDescent: 
 
-    def __init__(self, actions, init_state, initial_q, initial_theta, state_adapter = lambda x: x):
+    def __init__(self, actions, init_state, initial_q, initial_theta, be_positive = True, state_adapter = lambda x: x):
       self.lmbda = 0.8
       self.gamma = 0.7
       self.alpha = 0.1
       self.epsilon = 0.1
       self.state_adapter = state_adapter
+      self.be_positive = be_positive
+      self.log_freq = 0.05
+      self.game_over_regret = 0
       
       self.actions = actions
       self.action_ind = dict(zip(self.actions, range(len(self.actions))))
       self.state = init_state
       self.initial_q = initial_q
-      self.visited = set()
+      if self.be_positive:
+        self.visited = set()
 
-      self.theta = np.array(np.concatenate([np.array([initial_theta]), np.array([initial_theta]), np.array([initial_theta])], axis = 0))
+      self.theta = np.zeros([len(self.actions), len(initial_theta)])
       
-      self.e = np.concatenate([np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)]), np.array([[0] * len(initial_theta)])], axis = 0)
+      self.e = np.zeros([len(self.actions), len(initial_theta)])
 
     def phi(self, state):
       return self.state_adapter(state)
 
     def q(self, state, action):
-      return sum(self.theta[self.action_ind[action]][self.phi(state)])  
+      return self._q(self.phi(state), action)  
+
+    def _q(self, state, action):  
+      return sum(self.theta[self.action_ind[action]][state]) 
 
     def q_positive(self, state, action):
-      if (tuple(self.phi(state)), action) in self.visited:
+      if ((not self.be_positive) or (tuple(self.phi(state)), action) in self.visited):
         return self.q(state, action)
       else:
         return self.initial_q  
@@ -727,7 +831,6 @@ class SARSALambdaGradientDescent:
       if (random() < self.epsilon):
         return choice(self.actions)
       else:
-
         return self.pi(state)
           
     def best_action(self, state):
@@ -743,19 +846,29 @@ class SARSALambdaGradientDescent:
 
     def feedback(self, exp):
         a1 = self._action(exp.s1)
-        self.visited.add((tuple(self.phi(exp.s0)), exp.a0))        
+        s0 = self.phi(exp.s0)
+        s1 = self.phi(exp.s1)
+        r0 = exp.r0#max(min(exp.r0, 1), -1) - 0.1
+        if self.be_positive:
+          self.visited.add((tuple(s0), exp.a0))    
+
+        if exp.game_over:
+          r0 = self.game_over_regret
+
+        delta = r0 + (1 - int(exp.game_over)) * (self.gamma * self._q(s1, a1) - self._q(s0, exp.a0))
+        if (random() < self.log_freq):
+          print ("game_over ", int(exp.game_over), "delta ", delta)
+          print ("r", r0, "g", self.gamma, "q1", self._q(s1, a1), "q0", self._q(s0, exp.a0))
+          print ("a0", "a1", exp.a0, a1)        
         
-        delta = exp.r0 + self.gamma * self.q(exp.s1, a1) - self.q(exp.s0, exp.a0)
-        
-        self.theta = self.theta + self.alpha * delta * self.e
-        self.e = self.gamma * self.lmbda * self.e
+        self.theta += (self.alpha * delta) * self.e
+        self.e *= self.gamma
+        self.e *= self.lmbda
           
         
         for a in self.actions:
-            self.e[self.action_ind[a]][self.phi(exp.s1)] = 0
-        self.e[self.action_ind[a1]][self.phi(exp.s1)] = 1      
-        
-        print("phi1: ", self.phi(exp.s1))
+            self.e[self.action_ind[a]][s1] = 0
+        self.e[self.action_ind[a1]][s1] = 1.0 / len(s1)     
         
         self.state = exp.s1
         self.next_action = a1               
@@ -763,11 +876,12 @@ class SARSALambdaGradientDescent:
         
 
 class Teacher:
-    def __init__(self, new_game, algo, game_visualizer):
+    def __init__(self, new_game, algo, game_visualizer, repeat_action = 1):
       self.new_game = new_game
       self.algo = algo
       self.game_visualizer = game_visualizer
       self.algo_input = self.algo.action()
+      self.repeat_action = repeat_action
 
 
     def teach(self, episodes):
@@ -775,16 +889,12 @@ class Teacher:
 
     def single_play(self, n_steps = float("inf")):
       Game = self.new_game()
-      
-
-      history = []
 
       i_steps = 0
 
       while not Game.finished and i_steps < n_steps:
         i_steps += 1
         exp = self.single_step(Game)
-        history = [exp] + history
 
       if Game.finished:
         print "Finished after ", i_steps, " steps"    
@@ -803,9 +913,10 @@ class Teacher:
       old_cum_reward = Game.cum_reward
 
       action = next(self.algo_input)
-      Game.input(action)
+      for i in range(self.repeat_action):
+        Game.input(action)
 
-      exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, Game.get_state())
+      exp = Experience(old_state, action, Game.cum_reward - old_cum_reward, Game.get_state(), Game.finished)
       self.algo.feedback(exp)
       
       self.game_visualizer.show(Game)  

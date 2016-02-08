@@ -35,6 +35,18 @@ ARR = {0: (0,0,0),
            246: (146, 0, 0)}
 COLORS = sorted(ARR.keys())
 
+mergeArr = {0: 0,
+            6: 6,
+            20: 20, #robaki
+            52: 52, # oslony
+            196: 196,
+            226: 0,
+            246: 0}
+
+mergeArrValuesSet = set(mergeArr.values())
+#mergeArrValuesSet.remove(0)
+mergeArrValues = sorted(list(mergeArrValuesSet))
+
 def init():
 
   pygame.init()
@@ -43,21 +55,15 @@ def init():
   ale.setInt('random_seed', 123)
   ale.setBool('frame_skip', 1)
   ale.loadROM(rom_path + '/space_invaders.bin')
+  ale.setFloat("repeat_action_probability", 0)
   return ale
 
 def vectorize_single_group(vec):
-    return map(lambda e: e in vec, COLORS)
+    return map(lambda e: e in vec, mergeArrValues)
 
 def vectorized(scr, desired_width, desired_height):
     grouped = \
-      np.reshape(
-        np.swapaxes(
-          np.reshape(scr, 
-            (desired_width, 210 / desired_width, 
-              desired_height, 160 / desired_height)), 
-          1,2), 
-        (desired_width, desired_height, 
-          160 * 210 / desired_width / desired_height))
+      np.reshape(np.swapaxes(np.reshape(scr, (desired_width, 210 / desired_width, desired_height, 160 / desired_height)), 1,2), (desired_width, desired_height, 160 * 210 / desired_width / desired_height))
     return np.apply_along_axis(vectorize_single_group, axis = 2, arr = grouped)  
 
 class SpaceInvadersGameVectorizedVisualizer:
@@ -82,8 +88,8 @@ class SpaceInvadersGameVectorizedVisualizer:
       for x in range(0, self.desired_height):
         #border_rect = pygame.Rect(x, y, 16, 16)    
         #self.screen.blit(border, (x*16, y*16))  
-
-        for i_color in range(len(ARR)):
+       
+        for i_color in range(len(mergeArrValues)):
           if (vec[y][x][i_color]):
             rect.fill(ARR[COLORS[i_color]])
           else:
